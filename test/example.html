@@ -3,7 +3,7 @@
     <script src="../src/JSMQ.js"></script>
     <script>
         var dealer = new JSMQ.Dealer();
-        dealer.connect("ws://localhost:15798");
+        dealer.connect("ws://127.0.0.1:15798");
 
         // we must wait for the dealer to be connected before we can send messages, any messages we are trying to send
         // while the dealer is not connected will be dropped
@@ -26,24 +26,19 @@
         // };
 
         dealer.onMessage = function (message) {
-            // the response from the server
-            // alert(message.popString());
+            // Callback executed on response received from the server
+            console.log("Received: \"" + message.popString() + "\"");
         };
 
         function send() {
             var buffer = new Uint8Array([101]);
-            console.log("Buffer:", buffer[0]);
-            console.log("Buffer length:", buffer.BYTES_PER_ELEMENT);
 
             var message = new JSMQ.Message();
             message.addString("motion");
+            message.addString("1001");
             message.addBuffer(buffer);
-            console.log("Added buffer", message.getBuffer(1));
             // message.addString(document.getElementById("messageTextBox").value);
 
-            // message.addString(document.getElementById("messageTextBox").value);
-            
-            console.log("Message:", message.toString());
             dealer.send(message);
         }
 
