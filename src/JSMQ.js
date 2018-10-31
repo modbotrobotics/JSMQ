@@ -1,4 +1,5 @@
-// Endpoint class
+// Endpoint
+
 function Endpoint(address) {
     var ClosedState = 0;
     var ConnectingState = 1;
@@ -163,6 +164,7 @@ function LB() {
             return false;
         }
 
+        console.log("Dealer writing message:", message)
         endpoints[current].write(message);        
         current = (current + 1) % endpoints.length;
                 
@@ -177,7 +179,7 @@ function LB() {
     };
 }
 
-// SocketBase Class
+// SocketBase
 
 function SocketBase(xattachEndpoint, xendpointTerminated, xhasOut, xsend, xonMessage) {
 
@@ -378,11 +380,15 @@ JSMQ.Subscriber = function () {
 JSMQ.Message = function () {
     var frames = [];
 
+    this.toString = function() {
+        return frames;
+    }
+
     this.getSize = function() {
         return frames.length;
     }
 
-    // add string at the begining of the message
+    // add string at the beginning of the message
     this.prependString = function(str) {
         str = String(str);
 
@@ -419,11 +425,14 @@ JSMQ.Message = function () {
         return frame;
     }
 
-    // addd buffer at the end of the message
+    // add buffer at the end of the message
     this.addBuffer = function (buffer) {
 
         if (buffer instanceof ArrayBuffer) {
             frames.push(new Uint8Array(buffer));
+        }
+        else if (buffer instanceof Int16Array) {
+            frames.push(buffer);
         }
         else if (buffer instanceof Uint8Array) {
             frames.push(buffer);
@@ -435,7 +444,17 @@ JSMQ.Message = function () {
     // return Uint8Array at location i
     this.getBuffer = function(i) {
         return frames[i];
-    }        
+    }      
+
+    // // add buffer at the end of the message
+    // this.addData = function(data, size) {
+    //     frames.push
+    // }
+
+    // return Uint8Array at location i
+    this.getBuffer = function(i) {
+        return frames[i];
+    }      
 }
 
 function StringUtility()
