@@ -39,6 +39,8 @@ function Endpoint(address) {
   /**
    * Callback on WebSocket connection opened
    *
+   * On open, perform activated actions, set endpoint state to ActiveState.
+   *
    * @param {*} event
    */
   function onOpen (e) {
@@ -54,6 +56,7 @@ function Endpoint(address) {
   /**
    * Callback on WebSocket connection closed
    *
+   * On close, perform deactivated actions, set state to ClosedState.
    * Attempts to reconnect, until the number of reconnect tries exceeds the reconnect try limit.
    *
    * @param {*} event
@@ -77,7 +80,8 @@ function Endpoint(address) {
   /**
    * Callback on WebSocket message received
    *
-   * Attempts to parse the received message.
+   * Attempt to parse the received message.
+   * Parse raw blobs to ArrayBuffer before parsing frames.
    *
    * @param {*} event
    */
@@ -91,11 +95,12 @@ function Endpoint(address) {
       };
       fileReader.readAsArrayBuffer(event.data);
 
-    // Parse arraybuffers
+    // Parse ArrayBuffer
     } else if (event.data instanceof ArrayBuffer) {
       processFrame(event.data);
+
+    // Other message types are not supported and will be dropped
     } else {
-      // Other message types are not supported and will be dropped
       console.log("Could not parse message -- unsupported message type");
     }
   };
@@ -103,7 +108,7 @@ function Endpoint(address) {
   /**
    * Process a message frame
    *
-   * @param {*} frame
+   * @param {ArrayBuffer} frame
    */
   function processFrame(frame) {
     var view = new Uint8Array(frame);
@@ -242,7 +247,7 @@ function LoadBalancer() {
 }
 
 /**
- * ZWSSock
+ * ZWSSocket
  * TODO(aelsen)
  * @param {*} xattachEndpoint
  * @param {*} xendpointTerminated
@@ -274,7 +279,7 @@ function ZWSSocket(xattachEndpoint, xendpointTerminated, xhasOut, xsend, xonMess
   }
 
   /**
-   * TODO(aelsen)
+   * Create endpoint and attempt connection
    * @param {*} address
    */
   this.connect = function (address) {
@@ -286,11 +291,12 @@ function ZWSSocket(xattachEndpoint, xendpointTerminated, xhasOut, xsend, xonMess
   };
 
   /**
-   * TODO(aelsen)
+   * Disconnect from address
    * @param {*} address
    */
   this.disconnect = function(address) {
-    // TODO: implement disconnect
+    // UNIMPLEMENTED
+    console.log("Failed to disconnect - disconnect UNIMPLEMENTED");
   };
 
   /**
