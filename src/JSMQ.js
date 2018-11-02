@@ -737,7 +737,7 @@ NumberUtility.byteArrayToUint32 = function (arr) {
 }
 
 NumberUtility.doubleToByteArray = function (num) {
-  arr = new ArrayBuffer(64);
+  arr = new ArrayBuffer(8);
   view = new DataView(arr);
   view.setFloat64(0, num, NumberUtility.littleEndian);
   return arr;
