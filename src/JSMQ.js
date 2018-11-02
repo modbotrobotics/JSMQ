@@ -170,7 +170,7 @@ function Endpoint(address) {
     var messageSize = message.getSize();
 
     for (var j = 0; j < messageSize; j++) {
-      var frame = message.getPackagedFrame(j);
+      var frame = message.getFrame(j);
 
       var data = new Uint8Array(frame.byteLength + 1);
       data[0] = j == messageSize - 1 ? 0 : 1; // set the MORE byte
@@ -552,7 +552,7 @@ JSMQ.Message = function () {
    * @param {number} i - Frame to retrieve
    * @return {ArrayBuffer} - Frame payload
    */
-  this.getFrame = function(i) {
+  this.getBuffer = function(i) {
     // Remove the prepended MORE byte from the payload
     return this.frames[i].slice(1);
   }
@@ -562,7 +562,7 @@ JSMQ.Message = function () {
    * @param {number} i - Frame to retrieve
    * @return {ArrayBuffer} - Frame payload
    */
-  this.getPackagedFrame = function(i) {
+  this.getFrame = function(i) {
     return this.frames[i];
   }
 
@@ -571,7 +571,7 @@ JSMQ.Message = function () {
    * @param {*} i
    */
   this.getDouble = function (i) {
-    var buf = this.getFrame(i);
+    var buf = this.getBuffer(i);
 
     return NumberUtility.byteArrayToDouble(buf);
   }
@@ -581,7 +581,7 @@ JSMQ.Message = function () {
    * @param {*} i
    */
   this.getInt16 = function (i) {
-    var buf = this.getFrame(i);
+    var buf = this.getBuffer(i);
 
     return NumberUtility.byteArrayToInt16(buf);
   }
@@ -591,7 +591,7 @@ JSMQ.Message = function () {
    * @param {*} i
    */
   this.getInt32 = function (i) {
-    var buf = this.getFrame(i);
+    var buf = this.getBuffer(i);
 
     return NumberUtility.byteArrayToInt32(buf);
   }
@@ -601,7 +601,7 @@ JSMQ.Message = function () {
    * @param {*} i
    */
   this.getUint16 = function (i) {
-    var buf = this.getFrame(i);
+    var buf = this.getBuffer(i);
 
     return NumberUtility.byteArrayToUint16(buf);
   }
@@ -611,7 +611,7 @@ JSMQ.Message = function () {
    * @param {*} i
    */
   this.getUint32 = function (i) {
-    var buf = this.getFrame(i);
+    var buf = this.getBuffer(i);
 
     return NumberUtility.byteArrayToUint32(buf);
   }
@@ -621,7 +621,7 @@ JSMQ.Message = function () {
    * @param {*} i
    */
   this.getString = function (i) {
-    var frame = this.getFrame(i);
+    var frame = this.getBuffer(i);
     return StringUtility.Uint8ArrayToString(new Uint8Array(frame));
   }
 
