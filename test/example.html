@@ -27,17 +27,26 @@
 
         dealer.onMessage = function (message) {
             // Callback executed on response received from the server
-            console.log("Received: \"" + message.popString() + "\"");
+            console.log("Received: \""+ message.popString() + "\""); 
+            // console.log("Received: \""+ message.popString() + "\",", 
+            // message.popInt(), 
+            // message.popInt(), 
+            // message.popLong(), 
+            // message.popLong(), 
+            // message.popDouble(), 
+            // message.popDouble());
         };
 
         function send() {
-            var buffer = new Uint8Array([101]);
-
             var message = new JSMQ.Message();
-            message.addString("motion");
-            message.addString("1001");
-            message.addBuffer(buffer);
-            // message.addString(document.getElementById("messageTextBox").value);
+            message.addString(document.getElementById("messageTextBox").value);
+            // message.addString("Hello");
+            // message.addInt(1234);
+            // message.addInt(-1234);
+            // message.addLong(1234567);
+            // message.addLong(-1234567);
+            // message.addDouble(12345678.87654321);
+            // message.addDouble(-12345678.87654321);
 
             dealer.send(message);
         }

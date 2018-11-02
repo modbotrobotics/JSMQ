@@ -1,5 +1,9 @@
-// Endpoint
+/**
+ * Class representing a WebSocket endpoint
+ * @param {string} address - The endpoint address (ex: "ws://127.0.0.1:15798")
+ */
 function Endpoint(address) {
+
   var ClosedState = 0;
   var ConnectingState = 1;
   var ActiveState = 2;
@@ -83,7 +87,7 @@ function Endpoint(address) {
    * Attempt to parse the received message.
    * Parse raw blobs to ArrayBuffer before parsing frames.
    *
-   * @param {*} event
+   * @param {*} event - The message event
    */
   function onMessage(event) {
     // Parse blobs
@@ -106,13 +110,13 @@ function Endpoint(address) {
   };
 
   /**
-   * Process a message frame
+   * Process a message frame, adding the data as an ArrayBuffer to its list of frames
    *
    * @param {ArrayBuffer} frame
    */
   function processFrame(frame) {
     var view = new Uint8Array(frame);
-    var more = view[0];
+    var msg_continued = view[0];
 
     if (incomingMessage == null) {
       incomingMessage = new JSMQ.Message();
@@ -121,7 +125,7 @@ function Endpoint(address) {
     incomingMessage.addBuffer(view.subarray(1));
 
     // last message
-    if (more == 0) {
+    if (msg_continued == 0) {
       if (that.onMessage != null) {
         that.onMessage(that, incomingMessage);
       }
@@ -131,22 +135,22 @@ function Endpoint(address) {
   }
 
   /**
-   * TODO(aelsen)
+   * TODO
    */
   this.activated = null;
 
   /**
-   * TODO(aelsen)
+   * TODO
    */
   this.deactivated = null;
 
   /**
-   * TODO(aelsen)
+   * TODO
    */
   this.onMessage = null;
 
   /**
-   * TODO(aelsen)
+   * TODO
    */
   this.getIsActive = function() {
     return state == ActiveState;
@@ -155,22 +159,22 @@ function Endpoint(address) {
   /**
    * Write message to wire
    *
-   * @param {JSMQ.Message} message
+   * Each frame is sent as a separate message over WebSocket.
+   * The ZWSSock reconstructs the final message from the series of separate messages.
+   * A "message continued" byte is prepended to each message to indicate whether there are additional
+   * frames coming over the wire.
+   *
+   * @param {JSMQ.Message} message - Message to write to wire
    */
   this.write = function (message) {
-    console.log("JSMQ Endpoint writing message", message);  // DEBUG
     var messageSize = message.getSize();
 
-    console.log(" - message size:", messageSize);  // DEBUG
-
     for (var j = 0; j < messageSize; j++) {
-      var frame = message.getBuffer(j);
-      console.log(" - frame:", frame);  // DEBUG
+      var frame = message.getPackagedFrame(j);
 
-      var data = new Uint8Array(frame.length + 1);
-      data[0] = j == messageSize - 1 ? 0 : 1; // set the more byte
-
-      data.set(frame, 1);
+      var data = new Uint8Array(frame.byteLength + 1);
+      data[0] = j == messageSize - 1 ? 0 : 1; // set the message continued byte
+      data.set(new Uint8Array(frame), 1);
 
       webSocket.send(data);
     }
@@ -178,7 +182,7 @@ function Endpoint(address) {
 }
 
 /**
- * Load Balancer
+ * Class acting as Load Balancer
  */
 function LoadBalancer() {
   var that = this;
@@ -188,8 +192,8 @@ function LoadBalancer() {
   this.writeActivated = null;
 
   /**
-   * Attach: add endpoint to list of endpoints
-   * @param {*} endpoint
+   * Attach: add an endpoint to list of endpoints
+   * @param {JSMQ.Endpoint} endpoint - The endpoint to attach to
    */
   this.attach = function(endpoint) {
     endpoints.push(endpoint);
@@ -203,8 +207,8 @@ function LoadBalancer() {
   };
 
   /**
-   * Terminate: remove endpoint from list of endpoints
-   * @param {*} endpoint
+   * Terminate: remove an endpoint from list of endpoints
+   * @param {JSMQ.Endpoint} endpoint
    */
   this.terminated = function(endpoint) {
     var index = endpoints.indexOf(endpoint);
@@ -217,8 +221,9 @@ function LoadBalancer() {
   };
 
   /**
-   * Send message over current endpoint
-   * @param {*} message
+   * Send message over current the endpoint
+   * @param {JSMQ.Message} message - The message to send
+   * @return {Boolean} - Success
    */
   this.send = function (message) {
     if (endpoints.length == 0) {
@@ -227,7 +232,6 @@ function LoadBalancer() {
       return false;
     }
 
-    console.log("JSMQ loadbalancer sending message (send())", message);  // DEBUG
     endpoints[current].write(message);
     current = (current + 1) % endpoints.length;
 
@@ -235,7 +239,7 @@ function LoadBalancer() {
   };
 
   /**
-   * TODO(aelsen)
+   * TODO
    */
   this.getHasOut = function () {
     if (inprogress) {
@@ -248,40 +252,21 @@ function LoadBalancer() {
 
 /**
  * ZWSSocket
- * TODO(aelsen)
- * @param {*} xattachEndpoint
- * @param {*} xendpointTerminated
- * @param {*} xhasOut
- * @param {*} xsend
- * @param {*} xonMessage
  */
 function ZWSSocket(xattachEndpoint, xendpointTerminated, xhasOut, xsend, xonMessage) {
-
   this.onMessage = null;
   this.sendReady = null;
 
   var endpoints = [];
 
-  /**
-   * TODO(aelsen)
-   * @param {*} endpoint
-   */
   function onEndpointActivated(endpoint) {
     xattachEndpoint(endpoint);
   }
 
-  /**
-   * TODO(aelsen)
-   * @param {*} endpoint
-   */
   function onEndpointDeactivated(endpoint) {
     xendpointTerminated(endpoint);
   }
 
-  /**
-   * Create endpoint and attempt connection
-   * @param {*} address
-   */
   this.connect = function (address) {
     var endpoint = new Endpoint(address);
     endpoint.activated = onEndpointActivated;
@@ -290,26 +275,15 @@ function ZWSSocket(xattachEndpoint, xendpointTerminated, xhasOut, xsend, xonMess
     endpoints.push(endpoint);
   };
 
-  /**
-   * Disconnect from address
-   * @param {*} address
-   */
   this.disconnect = function(address) {
     // UNIMPLEMENTED
     console.log("Failed to disconnect - disconnect UNIMPLEMENTED");
   };
 
-  /**
-   * TODO(aelsen)
-   * @param {*} message
-   */
   this.send = function (message) {
     return xsend(message);
   };
 
-  /**
-   * TODO(aelsen)
-   */
   this.getHasOut = function() {
     return xhasOut();
   };
@@ -320,7 +294,7 @@ function JSMQ() {}
 
 
 /**
- * JSMQ Dealer
+ * Class representing a ZeroMQ DEALER type socket
  */
 JSMQ.Dealer = function() {
   var lb = new LoadBalancer();
@@ -345,7 +319,6 @@ JSMQ.Dealer = function() {
   }
 
   function xsend(message) {
-    console.log("JSMQ Dealer sending message (xsend())", message);  // DEBUG
     return lb.send(message);
   }
 
@@ -359,18 +332,18 @@ JSMQ.Dealer = function() {
 }
 
 /**
- * JSMQ Subscriber
+ * Class representing a ZeroMQ SUBSCRIBER type socket
  */
 JSMQ.Subscriber = function () {
   var socket = new ZWSSocket(xattachEndpoint, xendpointTerminated, xhasOut, xsend, xonMessage);;
 
-  var subscriptions = [];
   var endpoints = [];
+  var subscriptions = [];
 
   var isActive = false;
 
   /**
-   * TODO(aelsen)
+   * TODO
    * @param {*} subscription
    */
   socket.subscribe = function (subscription) {
@@ -383,7 +356,7 @@ JSMQ.Subscriber = function () {
       subscription = StringUtility.StringToUint8Array(String(subscription));
     }
 
-    // TODO: check if the subscription already exist
+    // TODO: check if the subscription already exists
     subscriptions.push(subscription)
 
     var message = createSubscriptionMessage(subscription, true);
@@ -394,8 +367,8 @@ JSMQ.Subscriber = function () {
   }
 
   /**
-   * TODO(aelsen)
-   * @param {*} subscrption
+   * TODO
+   * @param {*} subscription
    */
   socket.unsubscribe = function (subscription) {
     if (subscription instanceof Uint8Array) {
@@ -435,7 +408,7 @@ JSMQ.Subscriber = function () {
   }
 
   /**
-   * TODO(aelsen)
+   * TODO
    * @param {*} subscription
    * @param {*} subscribe
    */
@@ -490,87 +463,235 @@ JSMQ.Subscriber = function () {
   return socket;
 }
 
-// JSMQ Message
+/**
+ * Class representing a ZeroMQ message
+ */
 JSMQ.Message = function () {
-  this.frames = [];
+  this.frames = [];  // Array of ArrayBuffers. Each ArrayBuffer represents a frame.
 
   /**
    * Get size in number of frames
+   * @return {number} - number of frames
    */
   this.getSize = function() {
     return this.frames.length;
   }
 
   /**
-   * Insert string at the beginning of the message
-   * @param {*} str
+   * Append a buffer to the end of the message
+   * @param {ArrayBuffer} buffer - Buffer of data to append
    */
-  this.prependString = function(str) {
-    str = String(str);
+  this.addBuffer = function (data) {
+    if (data instanceof ArrayBuffer) {
+      this.frames.push(data);
 
-    // one more byte is saved for the more byte
-    var buffer = new Uint8Array(str.length);
+    } else if (data instanceof Uint8Array) {
+      this.frames.push(data.buffer);
 
-    StringUtility.StringToUint8Array(str, buffer);
+    } else {
+      throw ("Failed to add buffer to message - unknown buffer type \"" + typeof buffer + "\"");
+    }
+  }
 
-    this.frames.splice(0, 0, buffer);
+  /**
+   * Append a double to the end of the message
+   * @param {number} number - Double to append
+   */
+  this.addDouble = function (number) {
+    this.addBuffer(NumberUtility.doubleToByteArray(number));
+  }
+
+  /**
+   * Append an int to the end of the message
+   * @param {number} number - Int to append
+   */
+  this.addInt = function (number) {
+    this.addBuffer(NumberUtility.intToByteArray(number));
+  }
+
+  /**
+   * Append a long int to the end of the message
+   * @param {number} number - Long to append
+   */
+  this.addLong = function (number) {
+    this.addBuffer(NumberUtility.longToByteArray(number));
   }
 
   /**
    * Append a string to the end of the message
-   * @param {*} str
+   * @param {string} str - String to append
    */
   this.addString = function(str) {
     str = String(str);
 
-    // one more byte is saved for the more byte
-    var buffer = new Uint8Array(str.length);
+    // A byte is saved for the "message continued" byte
+    var arr = new Uint8Array(str.length);
 
-    StringUtility.StringToUint8Array(str, buffer);
-    this.frames.push(buffer);
+    StringUtility.StringToUint8Array(str, arr);
+    this.addBuffer(arr);
+  }
+
+  /**
+   * Get the frame at the specified location
+   * @param {number} i - Frame to retrieve
+   * @return {ArrayBuffer} - Frame payload
+   */
+  this.getFrame = function(i) {
+    // Remove the prepended "message continued" byte from the payload
+    return this.frames[i].slice(1);
+  }
+
+  /**
+   * Get the frame at the specified location
+   * @param {number} i - Frame to retrieve
+   * @return {ArrayBuffer} - Frame payload
+   */
+  this.getPackagedFrame = function(i) {
+    // Remove the prepended "message continued" byte from the payload
+    return this.frames[i];
+  }
+
+  /**
+   * Get a double at the specified frame location
+   * @param {*} i
+   */
+  this.getDouble = function (i) {
+    var buf = this.getFrame(i);
+
+    return NumberUtility.byteArrayToDouble(buf);
+  }
+
+  /**
+   * Get an int at the specified frame location
+   * @param {*} i
+   */
+  this.getInt = function (i) {
+    var buf = this.getFrame(i);
+
+    return NumberUtility.byteArrayToInt(buf);
+  }
+
+  /**
+   * Get a long int at the specified frame location
+   * @param {*} i
+   */
+  this.getLong = function (i) {
+    var buf = this.getFrame(i);
+
+    return NumberUtility.byteArrayToLong(buf);
+  }
+
+  /**
+   * Get a string at the specified frame location
+   * @param {*} i
+   */
+  this.getString = function (i) {
+    var frame = this.getFrame(i);
+    return StringUtility.Uint8ArrayToString(new Uint8Array(frame));
+  }
+
+  /**
+   * Pop the first frame of the message, as an ArrayBuffer
+   * @return {ArrayBuffer} - Frame payload
+   */
+  this.popFrame = function() {
+    var frame = this.frames[0];
+    this.frames.splice(0, 1);
+
+    // Remove the prepended "message continued" byte from the payload
+    return frame.slice(1);
+  }
+
+  /**
+   * Pop the first frame of the message, as a double
+   * @return {double}
+   */
+  this.popDouble = function() {
+    var frame = this.popFrame();
+    return NumberUtility.byteArrayToDouble(frame);
+  }
+
+  /**
+   * Pop the first frame of the message, as an int
+   * @return {int}
+   */
+  this.popInt = function() {
+    var frame = this.popFrame();
+    return NumberUtility.byteArrayToInt(frame);
+  }
+
+  /**
+   * Pop the first frame of the message, as a long int
+   * @return {long}
+   */
+  this.popLong = function() {
+    var frame = this.popFrame();
+    return NumberUtility.byteArrayToLong(frame);
   }
 
   /**
    * Pop the first frame of the message, as a string
+   * @return {string}
    */
   this.popString = function() {
-    var frame = this.popBuffer();
-
-    return StringUtility.Uint8ArrayToString(frame);
+    var frame = this.popFrame();
+    return StringUtility.Uint8ArrayToString(new Uint8Array(frame));
   }
 
   /**
-   * Pop the first frame of the message, as a buffer
+   * Insert a string at the beginning of the message
+   * @param {string} str
    */
-  this.popBuffer = function() {
-    var frame = this.frames[0];
-    this.frames.splice(0, 1);
+  this.prependString = function(str) {
+    str = String(str);
 
-    return frame;
-  }
+    var arr = new Uint8Array(str.length);
 
-  /**
-   * Append a buffer to the end of themessage
-   * @param {*} buffer
-   */
-  this.addBuffer = function (buffer) {
-    if (buffer instanceof ArrayBuffer) {
-      this.frames.push(new Uint8Array(buffer));
-    }
-    else if (buffer instanceof Uint8Array) {
-      this.frames.push(buffer);
-    } else {
-      throw new "unknown buffer type";
-    }
-  }
+    StringUtility.StringToUint8Array(str, arr);
 
-  /**
-   * Get buffer at frame location
-   * @param {*} i
-   */
-  this.getBuffer = function(i) {
-    return this.frames[i];
+    this.frames.splice(0, 0, arr.buffer);
   }
+}
+
+// Number Utility
+function NumberUtility() {}
+
+NumberUtility.littleEndian = true;
+
+NumberUtility.intToByteArray = function (num) {
+  arr = new ArrayBuffer(2);
+  view = new DataView(arr);
+  view.setInt16(0, num, NumberUtility.littleEndian);
+  return arr;
+}
+
+NumberUtility.byteArrayToInt = function (arr) {
+  view = new DataView(arr);
+  return view.getInt16(0, NumberUtility.littleEndian);
+}
+
+NumberUtility.longToByteArray = function (num) {
+  arr = new ArrayBuffer(4);
+  view = new DataView(arr);
+  view.setInt32(0, num, NumberUtility.littleEndian);
+  return arr;
+}
+
+NumberUtility.byteArrayToLong = function (arr) {
+  view = new DataView(arr);
+  return view.getInt32(0, NumberUtility.littleEndian);
+}
+
+NumberUtility.doubleToByteArray = function (num) {
+  arr = new ArrayBuffer(64);
+  view = new DataView(arr);
+  view.setFloat64(0, num, NumberUtility.littleEndian);
+  return arr;
+}
+
+NumberUtility.byteArrayToDouble = function (arr) {
+  view = new DataView(arr);
+  return view.getFloat64(0, NumberUtility.littleEndian);
 }
 
 
@@ -586,7 +707,7 @@ StringUtility.StringToUint8Array = function (str, buffer) {
     var char = str.charCodeAt(i);
 
     if (char > 255) {
-      // only ASCII are supported at the moment, we will put ? instead
+      // Only ASCII are supported at the moment, a '?' is used instead of unsupported chars
       buffer[i] = "?".charCodeAt();
     } else {
       buffer[i] = char;
