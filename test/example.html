@@ -16,7 +16,7 @@
         // subscriber.subscribe("chat");
 
         // subscriber.onMessage = function (message) {
-            
+
         //     // we ignore the first frame because it's topic
         //     message.popString();
 
@@ -27,13 +27,13 @@
 
         dealer.onMessage = function (message) {
             // Callback executed on response received from the server
-            console.log("Received: \""+ message.popString() + "\""); 
-            // console.log("Received: \""+ message.popString() + "\",", 
-            // message.popInt(), 
-            // message.popInt(), 
-            // message.popLong(), 
-            // message.popLong(), 
-            // message.popDouble(), 
+            console.log("Received: \""+ message.popString() + "\"");
+            // console.log("Received: \""+ message.popString() + "\",",
+            // message.popInt(),
+            // message.popInt(),
+            // message.popLong(),
+            // message.popLong(),
+            // message.popDouble(),
             // message.popDouble());
         };
 
@@ -57,12 +57,12 @@
               send();
         }
     </script>
-    <body>                        
+    <body>
         <textarea id="chatTextArea" readonly="readonly"></textarea>
         <br/>
         <label>Message:</label><input id="messageTextBox" value="" onkeypress="onInputKeyPress(event)"/>
         <button id="sendButton" disabled="disabled" onclick="javascript:send();">
             Send
-        </button>                    
+        </button>
     </body>
 </html>
