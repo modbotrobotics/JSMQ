@@ -116,7 +116,7 @@ function Endpoint(address) {
    */
   function processFrame(frame) {
     var view = new Uint8Array(frame);
-    var msg_continued = view[0];
+    var more = view[0];
 
     if (incomingMessage == null) {
       incomingMessage = new JSMQ.Message();
@@ -125,7 +125,7 @@ function Endpoint(address) {
     incomingMessage.addBuffer(view.subarray(1));
 
     // last message
-    if (msg_continued == 0) {
+    if (more == 0) {
       if (that.onMessage != null) {
         that.onMessage(that, incomingMessage);
       }
@@ -161,7 +161,7 @@ function Endpoint(address) {
    *
    * Each frame is sent as a separate message over WebSocket.
    * The ZWSSock reconstructs the final message from the series of separate messages.
-   * A "message continued" byte is prepended to each message to indicate whether there are additional
+   * A MORE byte is prepended to each message to indicate whether there are additional
    * frames coming over the wire.
    *
    * @param {JSMQ.Message} message - Message to write to wire
@@ -173,7 +173,7 @@ function Endpoint(address) {
       var frame = message.getPackagedFrame(j);
 
       var data = new Uint8Array(frame.byteLength + 1);
-      data[0] = j == messageSize - 1 ? 0 : 1; // set the message continued byte
+      data[0] = j == messageSize - 1 ? 0 : 1; // set the MORE byte
       data.set(new Uint8Array(frame), 1);
 
       webSocket.send(data);
@@ -505,16 +505,32 @@ JSMQ.Message = function () {
    * Append an int to the end of the message
    * @param {number} number - Int to append
    */
-  this.addInt = function (number) {
-    this.addBuffer(NumberUtility.intToByteArray(number));
+  this.addInt16 = function (number) {
+    this.addBuffer(NumberUtility.int16ToByteArray(number));
+  }
+
+  /**
+   * Append an int to the end of the message
+   * @param {number} number - Int to append
+   */
+  this.addInt32 = function (number) {
+    this.addBuffer(NumberUtility.int32ToByteArray(number));
   }
 
   /**
    * Append a long int to the end of the message
-   * @param {number} number - Long to append
+   * @param {number} number - Uint16 to append
    */
-  this.addLong = function (number) {
-    this.addBuffer(NumberUtility.longToByteArray(number));
+  this.addUint16 = function (number) {
+    this.addBuffer(NumberUtility.int16ToByteArray(number));
+  }
+
+  /**
+   * Append a long int to the end of the message
+   * @param {number} number - Uint32 to append
+   */
+  this.addUint32 = function (number) {
+    this.addBuffer(NumberUtility.int32ToByteArray(number));
   }
 
   /**
@@ -524,7 +540,7 @@ JSMQ.Message = function () {
   this.addString = function(str) {
     str = String(str);
 
-    // A byte is saved for the "message continued" byte
+    // A byte is saved for the MORE byte
     var arr = new Uint8Array(str.length);
 
     StringUtility.StringToUint8Array(str, arr);
@@ -537,7 +553,7 @@ JSMQ.Message = function () {
    * @return {ArrayBuffer} - Frame payload
    */
   this.getFrame = function(i) {
-    // Remove the prepended "message continued" byte from the payload
+    // Remove the prepended MORE byte from the payload
     return this.frames[i].slice(1);
   }
 
@@ -547,7 +563,6 @@ JSMQ.Message = function () {
    * @return {ArrayBuffer} - Frame payload
    */
   this.getPackagedFrame = function(i) {
-    // Remove the prepended "message continued" byte from the payload
     return this.frames[i];
   }
 
@@ -565,20 +580,40 @@ JSMQ.Message = function () {
    * Get an int at the specified frame location
    * @param {*} i
    */
-  this.getInt = function (i) {
+  this.getInt16 = function (i) {
     var buf = this.getFrame(i);
 
-    return NumberUtility.byteArrayToInt(buf);
+    return NumberUtility.byteArrayToInt16(buf);
+  }
+
+  /**
+   * Get an int at the specified frame location
+   * @param {*} i
+   */
+  this.getInt32 = function (i) {
+    var buf = this.getFrame(i);
+
+    return NumberUtility.byteArrayToInt32(buf);
   }
 
   /**
    * Get a long int at the specified frame location
    * @param {*} i
    */
-  this.getLong = function (i) {
+  this.getUint16 = function (i) {
     var buf = this.getFrame(i);
 
-    return NumberUtility.byteArrayToLong(buf);
+    return NumberUtility.byteArrayToUint16(buf);
+  }
+
+  /**
+   * Get a long int at the specified frame location
+   * @param {*} i
+   */
+  this.getUint32 = function (i) {
+    var buf = this.getFrame(i);
+
+    return NumberUtility.byteArrayToUint32(buf);
   }
 
   /**
@@ -613,20 +648,20 @@ JSMQ.Message = function () {
 
   /**
    * Pop the first frame of the message, as an int
-   * @return {int}
+   * @return {number}
    */
-  this.popInt = function() {
+  this.popInt16 = function() {
     var frame = this.popFrame();
-    return NumberUtility.byteArrayToInt(frame);
+    return NumberUtility.byteArrayToInt16(frame);
   }
 
   /**
-   * Pop the first frame of the message, as a long int
-   * @return {long}
+   * Pop the first frame of the message, as an int
+   * @return {number}
    */
-  this.popLong = function() {
+  this.popInt32 = function() {
     var frame = this.popFrame();
-    return NumberUtility.byteArrayToLong(frame);
+    return NumberUtility.byteArrayToInt32(frame);
   }
 
   /**
@@ -636,6 +671,24 @@ JSMQ.Message = function () {
   this.popString = function() {
     var frame = this.popFrame();
     return StringUtility.Uint8ArrayToString(new Uint8Array(frame));
+  }
+
+  /**
+   * Pop the first frame of the message, as a long int
+   * @return {number}
+   */
+  this.popUint16 = function() {
+    var frame = this.popFrame();
+    return NumberUtility.byteArrayToUint16(frame);
+  }
+
+  /**
+   * Pop the first frame of the message, as a long int
+   * @return {number}
+   */
+  this.popUint32 = function() {
+    var frame = this.popFrame();
+    return NumberUtility.byteArrayToUint32(frame);
   }
 
   /**
@@ -658,28 +711,29 @@ function NumberUtility() {}
 
 NumberUtility.littleEndian = true;
 
-NumberUtility.intToByteArray = function (num) {
-  arr = new ArrayBuffer(2);
+NumberUtility.byteArrayToDouble = function (arr) {
   view = new DataView(arr);
-  view.setInt16(0, num, NumberUtility.littleEndian);
-  return arr;
+  return view.getFloat64(0, NumberUtility.littleEndian);
 }
 
-NumberUtility.byteArrayToInt = function (arr) {
+NumberUtility.byteArrayToInt16 = function (arr) {
   view = new DataView(arr);
   return view.getInt16(0, NumberUtility.littleEndian);
 }
 
-NumberUtility.longToByteArray = function (num) {
-  arr = new ArrayBuffer(4);
-  view = new DataView(arr);
-  view.setInt32(0, num, NumberUtility.littleEndian);
-  return arr;
-}
-
-NumberUtility.byteArrayToLong = function (arr) {
+NumberUtility.byteArrayToInt32 = function (arr) {
   view = new DataView(arr);
   return view.getInt32(0, NumberUtility.littleEndian);
+}
+
+NumberUtility.byteArrayToUint16 = function (arr) {
+  view = new DataView(arr);
+  return view.getUint16(0, NumberUtility.littleEndian);
+}
+
+NumberUtility.byteArrayToUint32 = function (arr) {
+  view = new DataView(arr);
+  return view.getUint32(0, NumberUtility.littleEndian);
 }
 
 NumberUtility.doubleToByteArray = function (num) {
@@ -689,9 +743,32 @@ NumberUtility.doubleToByteArray = function (num) {
   return arr;
 }
 
-NumberUtility.byteArrayToDouble = function (arr) {
+NumberUtility.int16ToByteArray = function (num) {
+  arr = new ArrayBuffer(2);
   view = new DataView(arr);
-  return view.getFloat64(0, NumberUtility.littleEndian);
+  view.setInt16(0, num, NumberUtility.littleEndian);
+  return arr;
+}
+
+NumberUtility.int32ToByteArray = function (num) {
+  arr = new ArrayBuffer(4);
+  view = new DataView(arr);
+  view.setInt32(0, num, NumberUtility.littleEndian);
+  return arr;
+}
+
+NumberUtility.uInt16ToByteArray = function (num) {
+  arr = new ArrayBuffer(2);
+  view = new DataView(arr);
+  view.setUint16(0, num, NumberUtility.littleEndian);
+  return arr;
+}
+
+NumberUtility.uInt32ToByteArray = function (num) {
+  arr = new ArrayBuffer(4);
+  view = new DataView(arr);
+  view.setUint32(0, num, NumberUtility.littleEndian);
+  return arr;
 }
 
 
