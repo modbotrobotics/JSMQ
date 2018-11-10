@@ -2,60 +2,68 @@
  * Class representing a WebSocket endpoint
  * @param {string} address - The endpoint address (ex: "ws://127.0.0.1:15798")
  */
-function Endpoint(address) {
+class Endpoint {
+  constructor(address) {
+    let ConnectionState = Object.freeze({
+      closed:                 1,
+      connecting:             2,
+      open:                   3,
+    });
 
-  var ClosedState = 0;
-  var ConnectingState = 1;
-  var ActiveState = 2;
-
-  var that = this;
-  var incomingMessage = null;
-  var reconnectTries = 0;
-  var state = ClosedState;
-  var webSocket = null;
-
-  console.log("Connecting to \"" + address + "\"");
-  open();
+    this.address = address;
+    this.incomingMessage = null;
+    this.connectionRetries = 0;
+    this.connectionState = ConnectionState.closed;
+    this.webSocket = null;
+    
+    this.activated = null;
+    this.deactivated = null;
+    this.onMessage = null;
+    this.isOpen = () => this.connectionState == ConnectionState.open;
+    
+    console.log("Connecting to \"" + address + "\"");
+    open();
+  }
 
   /**
    * Open a WebSocket connection to the endpoint address
    */
-  function open() {
-    if (webSocket != null) {
-      webSocket.onopen = null;
-      webSocket.onclose = null;
-      webSocket.onmessage = null;
+  open() {
+    if (this.webSocket != null) {
+      this.webSocket.onopen = null;
+      this.webSocket.onclose = null;
+      this.webSocket.onmessage = null;
     }
 
-    outgoingArray = [];
+    this.outgoingArray = [];
 
-    webSocket = new window.WebSocket(address, ["WSNetMQ"]);
-    webSocket.binaryType = "arraybuffer";
-    state = ConnectingState;
+    this.webSocket = new window.WebSocket(address, ["WSNetMQ"]);
+    this.webSocket.binaryType = "arraybuffer";
+    this.connectionState = ConnectionState.connecting;
 
-    webSocket.onopen = onOpen;
-    webSocket.onclose = onClose;
-    webSocket.onmessage = onMessage;
+    this.webSocket.onopen = onOpen;
+    this.webSocket.onclose = onClose;
+    this.webSocket.onmessage = onMessage;
 
-    reconnectTries++;
+    this.connectionRetries++;
   }
 
   /**
    * Callback on WebSocket connection opened
    *
-   * On open, perform activated actions, set endpoint state to ActiveState.
+   * On open, perform activated actions, set endpoint state to open.
    *
    * @param {*} event
    */
-  function onOpen (e) {
+  onOpen(e) {
     console.log("WebSocket connection to \"" + address + "\" established");
-    reconnectTries = 0;
+    this.connectionRetries = 0;
 
-    state = ActiveState;
-    if (that.activated != null) {
-      that.activated(that);
+    this.connectionState = ConnectionState.open;
+    if (this.activated != null) {
+      this.activated();
     }
-  };
+  }
 
   /**
    * Callback on WebSocket connection closed
@@ -65,21 +73,21 @@ function Endpoint(address) {
    *
    * @param {*} event
    */
-  function onClose(e) {
+  onClose(e) {
     console.log("WebSocket connection to \"" + address + "\" closed");
-    var stateBefore = state;
-    state = ClosedState;
+    let previousState = state;
+    this.connectionState = ConnectionState.closed;
 
-    if (stateBefore == ActiveState && that.deactivated != null) {
-      that.deactivated(that);
+    if (previousState == ConnectionState.open && this.deactivated != null) {
+      this.deactivated();
     }
 
-    if (reconnectTries > 10) {
-      window.setTimeout(open, 2000);
+    if (this.connectionRetries > 10) {
+      window.setTimeout(this.open, 2000);
     } else {
-      open();
+      this.open();
     }
-  };
+  }
 
   /**
    * Callback on WebSocket message received
@@ -89,72 +97,50 @@ function Endpoint(address) {
    *
    * @param {*} event - The message event
    */
-  function onMessage(event) {
+  onMessage(event) {
     // Parse blobs
     if (event.data instanceof Blob) {
-      var arrayBuffer;
-      var fileReader = new FileReader();
+      let arrayBuffer;
+      let fileReader = new FileReader();
       fileReader.onload = function () {
-        processFrame(this.result);
+        this.processFrame(this.result);
       };
       fileReader.readAsArrayBuffer(event.data);
 
     // Parse ArrayBuffer
     } else if (event.data instanceof ArrayBuffer) {
-      processFrame(event.data);
+      this.processFrame(event.data);
 
     // Other message types are not supported and will be dropped
     } else {
       console.log("Could not parse message -- unsupported message type");
     }
-  };
+  }
 
   /**
    * Process a message frame, adding the data as an ArrayBuffer to its list of frames
    *
    * @param {ArrayBuffer} frame
    */
-  function processFrame(frame) {
-    var view = new Uint8Array(frame);
-    var msg_continued = view[0];
+  processFrame(frame) {
+    const view = new Uint8Array(frame);
+    const more = view[0];
 
-    if (incomingMessage == null) {
-      incomingMessage = new JSMQ.Message();
+    if (this.incomingMessage == null) {
+      this.incomingMessage = new Message();
     }
 
-    incomingMessage.addBuffer(view.subarray(1));
+    this.incomingMessage.addBuffer(view.subarray(1));
 
     // last message
-    if (msg_continued == 0) {
-      if (that.onMessage != null) {
-        that.onMessage(that, incomingMessage);
+    if (more == 0) {
+      if (this.onMessage != null) {
+        this.onMessage(this, this.incomingMessage);
       }
 
-      incomingMessage = null;
+      this.incomingMessage = null;
     }
   }
-
-  /**
-   * TODO
-   */
-  this.activated = null;
-
-  /**
-   * TODO
-   */
-  this.deactivated = null;
-
-  /**
-   * TODO
-   */
-  this.onMessage = null;
-
-  /**
-   * TODO
-   */
-  this.getIsActive = function() {
-    return state == ActiveState;
-  };
 
   /**
    * Write message to wire
@@ -164,189 +150,185 @@ function Endpoint(address) {
    * A "message continued" byte is prepended to each message to indicate whether there are additional
    * frames coming over the wire.
    *
-   * @param {JSMQ.Message} message - Message to write to wire
+   * @param {Message} message - Message to write to wire
    */
-  this.write = function (message) {
-    var messageSize = message.getSize();
+  write(message) {
+    const messageSize = message.getSize();
 
-    for (var j = 0; j < messageSize; j++) {
-      var frame = message.getPackagedFrame(j);
+    for (let j = 0; j < messageSize; j++) {
+      const frame = message.getPackagedFrame(j);
 
-      var data = new Uint8Array(frame.byteLength + 1);
+      let data = new Uint8Array(frame.byteLength + 1);
       data[0] = j == messageSize - 1 ? 0 : 1; // set the message continued byte
       data.set(new Uint8Array(frame), 1);
 
       webSocket.send(data);
     }
-  };
+  }
 }
 
 /**
  * Class acting as Load Balancer
  */
-function LoadBalancer() {
-  var that = this;
-  var current = 0;
-  var endpoints = [];
-  var isActive = false;
-  this.writeActivated = null;
-
+class LoadBalancer {
+  constructor () {
+    this.current = 0;
+    this.endpoints = [];
+    this.isActive = false;
+    this.writeActivated = null;
+  }
   /**
    * Attach: add an endpoint to list of endpoints
-   * @param {JSMQ.Endpoint} endpoint - The endpoint to attach to
+   * @param {Endpoint} endpoint - The endpoint to attach to
    */
-  this.attach = function(endpoint) {
-    endpoints.push(endpoint);
+  attach(endpoint) {
+    this.endpoints.push(endpoint);
 
-    if (!isActive) {
-      isActive = true;
+    if (!this.isActive) {
+      this.isActive = true;
 
-      if (that.writeActivated != null)
-      that.writeActivated();
+      if (this.writeActivated != null)
+      this.writeActivated();
     }
-  };
+  }
 
   /**
    * Terminate: remove an endpoint from list of endpoints
-   * @param {JSMQ.Endpoint} endpoint
+   * @param {Endpoint} endpoint
    */
-  this.terminated = function(endpoint) {
-    var index = endpoints.indexOf(endpoint);
+  terminated(endpoint) {
+    const index = endpoints.indexOf(endpoint);
 
-    if (current == endpoints.length - 1) {
-      current = 0;
+    if (this.current == endpoints.length - 1) {
+      this.current = 0;
     }
 
-    endpoints.splice(index, 1);
-  };
+    this.endpoints.splice(index, 1);
+  }
 
   /**
    * Send message over current the endpoint
-   * @param {JSMQ.Message} message - The message to send
+   * @param {Message} message - The message to send
    * @return {Boolean} - Success
    */
-  this.send = function (message) {
-    if (endpoints.length == 0) {
-      isActive = false;
+  send(message) {
+    if (this.endpoints.length == 0) {
+      this.isActive = false;
       console.log("Failed to send message - no valid endpoints");
       return false;
     }
 
-    endpoints[current].write(message);
-    current = (current + 1) % endpoints.length;
+    this.endpoints[this.current].write(message);
+    this.current = (this.current + 1) % this.endpoints.length;
 
     return true;
-  };
+  }
 
   /**
    * TODO
    */
-  this.getHasOut = function () {
-    if (inprogress) {
+  getHasOut() {
+    if (this.inprogress) {
       return true;
     }
 
-    return endpoints.length > 0;
-  };
+    return this.endpoints.length > 0;
+  }
 }
 
 /**
  * ZWSSocket
  */
-function ZWSSocket(xattachEndpoint, xendpointTerminated, xhasOut, xsend, xonMessage) {
-  this.onMessage = null;
-  this.sendReady = null;
-
-  var endpoints = [];
-
-  function onEndpointActivated(endpoint) {
-    xattachEndpoint(endpoint);
-  }
-
-  function onEndpointDeactivated(endpoint) {
-    xendpointTerminated(endpoint);
-  }
-
-  this.connect = function (address) {
-    var endpoint = new Endpoint(address);
-    endpoint.activated = onEndpointActivated;
-    endpoint.deactivated = onEndpointDeactivated;
-    endpoint.onMessage = xonMessage;
-    endpoints.push(endpoint);
+export class ZWSSocket {
+  constructor () {
+    this.endpoints = [];
+    this.onMessage = null;
+    this.sendReady = null;
   };
-
-  this.disconnect = function(address) {
+  
+  connect(address) {
+    let endpoint = new Endpoint(address);
+    endpoint.activated = this.onEndpointActivated;
+    endpoint.deactivated = this.onEndpointDeactivated;
+    endpoint.onMessage = this.xonMessage;
+    this.endpoints.push(endpoint);
+  };
+  
+  disconnect(address) {
     // UNIMPLEMENTED
     console.log("Failed to disconnect - disconnect UNIMPLEMENTED");
   };
-
-  this.send = function (message) {
-    return xsend(message);
-  };
-
-  this.getHasOut = function() {
+  
+  getHasOut() {
     return xhasOut();
   };
+
+  onEndpointActivated(endpoint) {
+    xattachEndpoint(endpoint);
+  }
+
+  onEndpointDeactivated(endpoint) {
+    xendpointTerminated(endpoint);
+  }
+
+  send(message) {
+    return this.xsend(message);
+  };
 }
-
-// JSMQ namespace
-function JSMQ() {}
-
 
 /**
  * Class representing a ZeroMQ DEALER type socket
  */
-JSMQ.Dealer = function() {
-  var lb = new LoadBalancer();
-  var socket = new ZWSSocket(xattachEndpoint, xendpointTerminated, xhasOut, xsend, xonMessage);
-
-  lb.writeActivated = function() {
-    if (socket.sendReady != null) {
-      socket.sendReady(socket);
-    }
+export class Dealer extends ZWSSocket {
+  constructor() {
+    super();
+    this.lb = new LoadBalancer();
+    this.lb.writeActivated = function() {
+      if (sendReady != null) {
+        sendReady(socket);
+      }
+    };
   };
 
-  function xattachEndpoint(endpoint) {
-    lb.attach(endpoint);
+  xattachEndpoint(endpoint) {
+    this.lb.attach(endpoint);
   }
 
-  function xendpointTerminated(endpoint) {
-    lb.terminated(endpoint);
+  xendpointTerminated(endpoint) {
+    this.lb.terminated(endpoint);
   }
 
-  function xhasOut() {
-    return lb.getHasOut();
+  xhasOut() {
+    return this.lb.getHasOut();
   }
 
-  function xsend(message) {
-    return lb.send(message);
+  xsend(message) {
+    return this.lb.send(message);
   }
 
-  function xonMessage(endpoint, message) {
-    if (socket.onMessage != null) {
-      socket.onMessage(message);
+  xonMessage(endpoint, message) {
+    if (onMessage != null) {
+      onMessage(message);
     }
   }
-
-  return socket;
 }
 
 /**
  * Class representing a ZeroMQ SUBSCRIBER type socket
  */
-JSMQ.Subscriber = function () {
-  var socket = new ZWSSocket(xattachEndpoint, xendpointTerminated, xhasOut, xsend, xonMessage);;
-
-  var endpoints = [];
-  var subscriptions = [];
-
-  var isActive = false;
+export class Subscriber extends ZWSSocket {
+  constructor() {
+    super();
+    this.endpoints = [];
+    this.isActive = false;
+    this.subscriptions = [];
+  }
 
   /**
    * TODO
    * @param {*} subscription
    */
-  socket.subscribe = function (subscription) {
+  subscribe(subscription) {
     if (subscription instanceof Uint8Array) {
       // continue
     }
@@ -359,18 +341,18 @@ JSMQ.Subscriber = function () {
     // TODO: check if the subscription already exists
     subscriptions.push(subscription)
 
-    var message = createSubscriptionMessage(subscription, true);
+    const message = createSubscriptionMessage(subscription, true);
 
-    for (var i = 0; i < endpoints.length; i++) {
-      endpoints[i].write(message);
+    for (var i = 0; i < this.endpoints.length; i++) {
+      this.endpoints[i].write(message);
     }
-  }
+  };
 
   /**
    * TODO
    * @param {*} subscription
    */
-  socket.unsubscribe = function (subscription) {
+  unsubscribe(subscription) {
     if (subscription instanceof Uint8Array) {
       // continue
     }
@@ -383,18 +365,18 @@ JSMQ.Subscriber = function () {
 
     for (var j = 0; j < subscriptions.length; j++) {
 
-      if (subscriptions[j].length == subscription.length) {
+      if (this.subscriptions[j].length == subscription.length) {
         var equal = true;
 
-        for (var k = 0; k < subscriptions[j].length; k++) {
-          if (subscriptions[j][k] != subscription[k]) {
+        for (var k = 0; k < this.subscriptions[j].length; k++) {
+          if (this.subscriptions[j][k] != subscription[k]) {
             equal = false;
             break;
           }
         }
 
         if (equal) {
-          subscriptions.splice(j, 1);
+          this.subscriptions.splice(j, 1);
           break;
         }
       }
@@ -402,28 +384,29 @@ JSMQ.Subscriber = function () {
 
     var message = createSubscriptionMessage(subscription, false);
 
-    for (var i = 0; i < endpoints.length; i++) {
-      endpoints[i].write(message);
+    for (var i = 0; i < this.endpoints.length; i++) {
+      this.endpoints[i].write(message);
     }
-  }
+  };
+  
 
   /**
    * TODO
    * @param {*} subscription
    * @param {*} subscribe
    */
-  function createSubscriptionMessage(subscription, subscribe) {
+  createSubscriptionMessage(subscription, subscribe) {
     var frame = new Uint8Array(subscription.length + 1);
     frame[0] = subscribe ? 1 : 0;
     frame.set(subscription, 1);
 
-    var message = new JSMQ.Message();
+    var message = new Message();
     message.addBuffer(frame);
 
     return message;
   }
 
-  function xattachEndpoint(endpoint) {
+  xattachEndpoint(endpoint) {
     endpoints.push(endpoint);
 
     for (var i = 0; i < subscriptions.length; i++) {
@@ -441,39 +424,39 @@ JSMQ.Subscriber = function () {
     }
   }
 
-  function xendpointTerminated(endpoint) {
+  xendpointTerminated(endpoint) {
     var index = endpoints.indexOf(endpoint);
     endpoints.splice(index, 1);
   }
 
-  function xhasOut() {
+  xhasOut() {
     return false;
   }
 
-  function xsend(message, more) {
+  xsend(message, more) {
     throw new "Send not supported on sub socket";
   }
 
-  function xonMessage(endpoint, message) {
+  xonMessage(endpoint, message) {
     if (socket.onMessage != null) {
       socket.onMessage(message);
     }
   }
-
-  return socket;
 }
 
 /**
  * Class representing a ZeroMQ message
  */
-JSMQ.Message = function () {
-  this.frames = [];  // Array of ArrayBuffers. Each ArrayBuffer represents a frame.
+export class Message {
+  constructor() {
+    this.frames = [];  // Array of ArrayBuffers. Each ArrayBuffer represents a frame.
+  }
 
   /**
    * Get size in number of frames
    * @return {number} - number of frames
    */
-  this.getSize = function() {
+  getSize() {
     return this.frames.length;
   }
 
@@ -481,7 +464,7 @@ JSMQ.Message = function () {
    * Append a buffer to the end of the message
    * @param {ArrayBuffer} buffer - Buffer of data to append
    */
-  this.addBuffer = function (data) {
+  addBuffer(data) {
     if (data instanceof ArrayBuffer) {
       this.frames.push(data);
 
@@ -497,7 +480,7 @@ JSMQ.Message = function () {
    * Append a double to the end of the message
    * @param {number} number - Double to append
    */
-  this.addDouble = function (number) {
+  addDouble(number) {
     this.addBuffer(NumberUtility.doubleToByteArray(number));
   }
 
@@ -505,7 +488,7 @@ JSMQ.Message = function () {
    * Append an int to the end of the message
    * @param {number} number - Int to append
    */
-  this.addInt = function (number) {
+  addInt(number) {
     this.addBuffer(NumberUtility.intToByteArray(number));
   }
 
@@ -513,7 +496,7 @@ JSMQ.Message = function () {
    * Append a long int to the end of the message
    * @param {number} number - Long to append
    */
-  this.addLong = function (number) {
+  addLong(number) {
     this.addBuffer(NumberUtility.longToByteArray(number));
   }
 
@@ -521,11 +504,11 @@ JSMQ.Message = function () {
    * Append a string to the end of the message
    * @param {string} str - String to append
    */
-  this.addString = function(str) {
+  addString(str) {
     str = String(str);
 
     // A byte is saved for the "message continued" byte
-    var arr = new Uint8Array(str.length);
+    let arr = new Uint8Array(str.length);
 
     StringUtility.StringToUint8Array(str, arr);
     this.addBuffer(arr);
@@ -536,9 +519,9 @@ JSMQ.Message = function () {
    * @param {number} i - Frame to retrieve
    * @return {ArrayBuffer} - Frame payload
    */
-  this.getFrame = function(i) {
-    // Remove the prepended "message continued" byte from the payload
-    return this.frames[i].slice(1);
+  getFrame(frame) {
+    // Remove the prepended "message contframenued" byte from the payload
+    return this.frames[frame].slice(1);
   }
 
   /**
@@ -546,7 +529,7 @@ JSMQ.Message = function () {
    * @param {number} i - Frame to retrieve
    * @return {ArrayBuffer} - Frame payload
    */
-  this.getPackagedFrame = function(i) {
+  getPackagedFrame(i) {
     // Remove the prepended "message continued" byte from the payload
     return this.frames[i];
   }
@@ -555,46 +538,39 @@ JSMQ.Message = function () {
    * Get a double at the specified frame location
    * @param {*} i
    */
-  this.getDouble = function (i) {
-    var buf = this.getFrame(i);
-
-    return NumberUtility.byteArrayToDouble(buf);
+  getDouble(i) {
+    return NumberUtility.byteArrayToDouble(this.getFrame(i));
   }
 
   /**
    * Get an int at the specified frame location
    * @param {*} i
    */
-  this.getInt = function (i) {
-    var buf = this.getFrame(i);
-
-    return NumberUtility.byteArrayToInt(buf);
+  getInt(i) {
+    return NumberUtility.byteArrayToInt(this.getFrame(i));
   }
 
   /**
    * Get a long int at the specified frame location
    * @param {*} i
    */
-  this.getLong = function (i) {
-    var buf = this.getFrame(i);
-
-    return NumberUtility.byteArrayToLong(buf);
+  getLong(i) {
+    return NumberUtility.byteArrayToLong(this.getFrame(i));
   }
 
   /**
    * Get a string at the specified frame location
    * @param {*} i
    */
-  this.getString = function (i) {
-    var frame = this.getFrame(i);
-    return StringUtility.Uint8ArrayToString(new Uint8Array(frame));
+  getString(i) {
+    return StringUtility.Uint8ArrayToString(new Uint8Array(this.getFrame(i)));
   }
 
   /**
    * Pop the first frame of the message, as an ArrayBuffer
    * @return {ArrayBuffer} - Frame payload
    */
-  this.popFrame = function() {
+  popFrame() {
     var frame = this.frames[0];
     this.frames.splice(0, 1);
 
@@ -606,8 +582,8 @@ JSMQ.Message = function () {
    * Pop the first frame of the message, as a double
    * @return {double}
    */
-  this.popDouble = function() {
-    var frame = this.popFrame();
+  popDouble() {
+    const frame = this.popFrame();
     return NumberUtility.byteArrayToDouble(frame);
   }
 
@@ -615,8 +591,8 @@ JSMQ.Message = function () {
    * Pop the first frame of the message, as an int
    * @return {int}
    */
-  this.popInt = function() {
-    var frame = this.popFrame();
+  popInt() {
+    const frame = this.popFrame();
     return NumberUtility.byteArrayToInt(frame);
   }
 
@@ -624,8 +600,8 @@ JSMQ.Message = function () {
    * Pop the first frame of the message, as a long int
    * @return {long}
    */
-  this.popLong = function() {
-    var frame = this.popFrame();
+  popLong() {
+    const frame = this.popFrame();
     return NumberUtility.byteArrayToLong(frame);
   }
 
@@ -633,8 +609,8 @@ JSMQ.Message = function () {
    * Pop the first frame of the message, as a string
    * @return {string}
    */
-  this.popString = function() {
-    var frame = this.popFrame();
+  popString() {
+    const frame = this.popFrame();
     return StringUtility.Uint8ArrayToString(new Uint8Array(frame));
   }
 
@@ -642,7 +618,7 @@ JSMQ.Message = function () {
    * Insert a string at the beginning of the message
    * @param {string} str
    */
-  this.prependString = function(str) {
+  prependString(str) {
     str = String(str);
 
     var arr = new Uint8Array(str.length);
