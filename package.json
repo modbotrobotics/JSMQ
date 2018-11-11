@@ -1,0 +1,27 @@
+{
+  "name": "jsmq",
+  "version": "1.0.0",
+  "description": "Forked from [zeromq/JSMQ](https://github.com/zeromq/JSMQ).",
+  "main": "index.js",
+  "directories": {
+    "test": "test"
+  },
+  "dependencies": {
+    "jest": "^23.6.0",
+    "mock-socket": "^8.0.5"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "jest"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/modbotrobotics/JSMQ.git"
+  },
+  "author": "Modbot",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/modbotrobotics/JSMQ/issues"
+  },
+  "homepage": "https://github.com/modbotrobotics/JSMQ#readme"
+}
