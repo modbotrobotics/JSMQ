@@ -2,7 +2,7 @@ import { Server, WebSocket } from 'mock-socket';
 global.WebSocket = WebSocket;
 window.WebSocket = WebSocket;
 
-import { Dealer, Message } from './JSMQ.js'
+import { Dealer, Message } from '..'
 
 // Global constants
 const addressA = "ws://localhost:8080";

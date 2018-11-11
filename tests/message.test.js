@@ -1,4 +1,4 @@
-import { Message } from './JSMQ.js'
+import { Message } from '..'
 
 const testDoubleA = 1234.56789;
 const testDoubleB = -1234.56789;
