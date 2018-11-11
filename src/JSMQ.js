@@ -499,10 +499,10 @@ export class Message {
     this.getString = this.getString.bind(this);
 
     this.popDouble = this.popDouble.bind(this);
-    this.popInt = this.popInt.bind(this);
-    this.popInt = this.popInt.bind(this);
-    this.popInt = this.popInt.bind(this);
-    this.popInt = this.popInt.bind(this);
+    this.popInt16 = this.popInt16.bind(this);
+    this.popInt32 = this.popInt32.bind(this);
+    this.popUint16 = this.popUint16.bind(this);
+    this.popUint32 = this.popUint32.bind(this);
     this.popString = this.popString.bind(this);
     this.prependString = this.prependString.bind(this);
   }
