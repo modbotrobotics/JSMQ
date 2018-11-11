@@ -4,8 +4,8 @@ const testDoubleA = 1234.56789;
 const testDoubleB = -1234.56789;
 const testIntA = 1234;
 const testIntB = -1234;
-const testLongA = 123456789;
-const testLongB = -123456789;
+const testIntC = 87654321;
+const testIntD = -87654321;
 const testStringA = "test_string_a";
 const testStringB = "";
 var testBufferA = new ArrayBuffer(2);
@@ -36,29 +36,43 @@ describe('message creation', () => {
     message.addDouble(testDoubleA);
     message.addDouble(testDoubleB);
 
-    expect(message.addDouble(0)).toBeCloseTo(testDoubleA);
-    expect(message.addDouble(1)).toBeCloseTo(testDoubleB);
+    expect(message.getDouble(0)).toBeCloseTo(testDoubleA);
+    expect(message.getDouble(1)).toBeCloseTo(testDoubleB);
   });
 
-  test('add int', () => {
-    message.addInt(testIntA);
-    message.addInt(testIntA);
+  test('add 16 bit int', () => {
+    message.addInt16(testIntA);
+    message.addInt16(testIntB);
   
-    expect(message.getInt(0)).toEqual(testIntA);
-    expect(message.getInt(1)).toEqual(testIntB);
+    expect(message.getInt16(0)).toEqual(testIntA);
+    expect(message.getInt16(1)).toEqual(testIntB);
   });
 
-  test('add Long', () => {
-    message.addLong(testLongA);
-    message.addLong(testLongB);
+  test('add 32 bit int', () => {
+    message.addInt32(testIntC);
+    message.addInt32(testIntD);
+  
+    expect(message.getInt32(0)).toEqual(testIntC);
+    expect(message.getInt32(1)).toEqual(testIntD);
+  });
 
-    expect(message.getLong(0)).toEqual(testLongA);
-    expect(message.getLong(1)).toEqual(testLongB);
+  test('add 16 bit uint', () => {
+    message.addInt16(testIntA);
+  
+    expect(message.getInt16(0)).toEqual(testIntA);
+  });
+
+  test('add 32 bit uint', () => {
+    message.addInt32(testIntA);
+    message.addInt32(testIntC);
+  
+    expect(message.getInt32(0)).toEqual(testIntA);
+    expect(message.getInt32(1)).toEqual(testIntC);
   });
 
   test('add string', () => {
-    message.addBuffer(testStringA);
-    message.addBuffer(testStringB);
+    message.addString(testStringA);
+    message.addString(testStringB);
 
     expect(message.getString(0)).toMatch(testStringA);
     expect(message.getString(1)).toMatch(testStringB);
