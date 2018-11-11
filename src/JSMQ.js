@@ -1,15 +1,18 @@
 /**
+ * WebSocket connection state
+ */
+const ConnectionState = Object.freeze({
+  closed:                 1,
+  connecting:             2,
+  open:                   3,
+});
+
+/**
  * Class representing a WebSocket endpoint
  * @param {string} address - The endpoint address (ex: "ws://127.0.0.1:15798")
  */
 class Endpoint {
   constructor(address) {
-    let ConnectionState = Object.freeze({
-      closed:                 1,
-      connecting:             2,
-      open:                   3,
-    });
-
     this.address = address;
     this.incomingMessage = null;
     this.connectionRetries = 0;
@@ -18,13 +21,19 @@ class Endpoint {
     
     this.activated = null;
     this.deactivated = null;
-    this.onMessage = null;
     this.isOpen = () => this.connectionState == ConnectionState.open;
     
-    console.log("Connecting to \"" + address + "\"");
-    open();
+    this.open = this.open.bind(this);
+    this.onclose = this.onclose.bind(this);
+    this.onmessage = this.onmessage.bind(this);
+    this.onopen = this.onopen.bind(this);
+    this.processFrame = this.processFrame.bind(this);
+    this.write = this.write.bind(this);
+    
+    console.log("Connecting to \"" + this.address + "\"");
+    this.open();
   }
-
+  
   /**
    * Open a WebSocket connection to the endpoint address
    */
@@ -37,13 +46,13 @@ class Endpoint {
 
     this.outgoingArray = [];
 
-    this.webSocket = new window.WebSocket(address, ["WSNetMQ"]);
+    this.webSocket = new window.WebSocket(this.address, ["WSNetMQ"]);
     this.webSocket.binaryType = "arraybuffer";
     this.connectionState = ConnectionState.connecting;
 
-    this.webSocket.onopen = onOpen;
-    this.webSocket.onclose = onClose;
-    this.webSocket.onmessage = onMessage;
+    this.webSocket.onopen = this.onopen;
+    this.webSocket.onclose = this.onclose;
+    this.webSocket.onmessage = this.onmessage;
 
     this.connectionRetries++;
   }
@@ -55,13 +64,13 @@ class Endpoint {
    *
    * @param {*} event
    */
-  onOpen(e) {
-    console.log("WebSocket connection to \"" + address + "\" established");
+  onopen(e) {
+    console.log("WebSocket connection to \"" + this.address + "\" established");
     this.connectionRetries = 0;
 
     this.connectionState = ConnectionState.open;
     if (this.activated != null) {
-      this.activated();
+      this.activated(this);
     }
   }
 
@@ -73,13 +82,13 @@ class Endpoint {
    *
    * @param {*} event
    */
-  onClose(e) {
-    console.log("WebSocket connection to \"" + address + "\" closed");
-    let previousState = state;
+  onclose(e) {
+    console.log("WebSocket connection to \"" + this.address + "\" closed");
+    let previousState = this.connectionState;
     this.connectionState = ConnectionState.closed;
 
     if (previousState == ConnectionState.open && this.deactivated != null) {
-      this.deactivated();
+      this.deactivated(this);
     }
 
     if (this.connectionRetries > 10) {
@@ -97,7 +106,7 @@ class Endpoint {
    *
    * @param {*} event - The message event
    */
-  onMessage(event) {
+  onmessage(event) {
     // Parse blobs
     if (event.data instanceof Blob) {
       let arrayBuffer;
@@ -113,7 +122,7 @@ class Endpoint {
 
     // Other message types are not supported and will be dropped
     } else {
-      console.log("Could not parse message -- unsupported message type");
+      throw ("Could not parse message -- unsupported message type");
     }
   }
 
@@ -125,13 +134,13 @@ class Endpoint {
   processFrame(frame) {
     const view = new Uint8Array(frame);
     const more = view[0];
-
+    
     if (this.incomingMessage == null) {
       this.incomingMessage = new Message();
     }
-
+    
     this.incomingMessage.addBuffer(view.subarray(1));
-
+    
     // last message
     if (more == 0) {
       if (this.onMessage != null) {
@@ -162,7 +171,7 @@ class Endpoint {
       data[0] = j == messageSize - 1 ? 0 : 1; // set the message continued byte
       data.set(new Uint8Array(frame), 1);
 
-      webSocket.send(data);
+      this.webSocket.send(data);
     }
   }
 }
@@ -176,6 +185,11 @@ class LoadBalancer {
     this.endpoints = [];
     this.isActive = false;
     this.writeActivated = null;
+
+    this.attach = this.attach.bind(this);
+    this.getHasOut = this.getHasOut.bind(this);
+    this.send = this.send.bind(this);
+    this.terminated = this.terminated.bind(this);
   }
   /**
    * Attach: add an endpoint to list of endpoints
@@ -187,41 +201,10 @@ class LoadBalancer {
     if (!this.isActive) {
       this.isActive = true;
 
-      if (this.writeActivated != null)
-      this.writeActivated();
+      if (this.writeActivated != null) {
+        this.writeActivated();
+      }
     }
-  }
-
-  /**
-   * Terminate: remove an endpoint from list of endpoints
-   * @param {Endpoint} endpoint
-   */
-  terminated(endpoint) {
-    const index = endpoints.indexOf(endpoint);
-
-    if (this.current == endpoints.length - 1) {
-      this.current = 0;
-    }
-
-    this.endpoints.splice(index, 1);
-  }
-
-  /**
-   * Send message over current the endpoint
-   * @param {Message} message - The message to send
-   * @return {Boolean} - Success
-   */
-  send(message) {
-    if (this.endpoints.length == 0) {
-      this.isActive = false;
-      console.log("Failed to send message - no valid endpoints");
-      return false;
-    }
-
-    this.endpoints[this.current].write(message);
-    this.current = (this.current + 1) % this.endpoints.length;
-
-    return true;
   }
 
   /**
@@ -234,6 +217,38 @@ class LoadBalancer {
 
     return this.endpoints.length > 0;
   }
+
+  /**
+   * Send message over current the endpoint
+   * @param {Message} message - The message to send
+   * @return {Boolean} - Success
+   */
+  send(message) {
+    if (this.endpoints.length == 0) {
+      this.isActive = false;
+      throw ("Failed to send message - no valid endpoints");
+      return false;
+    }
+
+    this.endpoints[this.current].write(message);
+    this.current = (this.current + 1) % this.endpoints.length;
+
+    return true;
+  }
+
+  /**
+   * Terminate: remove an endpoint from list of endpoints
+   * @param {Endpoint} endpoint
+   */
+  terminated(endpoint) {
+    const index = this.endpoints.indexOf(endpoint);
+
+    if (this.current == this.endpoints.length - 1) {
+      this.current = 0;
+    }
+
+    this.endpoints.splice(index, 1);
+  }
 }
 
 /**
@@ -244,6 +259,13 @@ export class ZWSSocket {
     this.endpoints = [];
     this.onMessage = null;
     this.sendReady = null;
+
+    this.connect = this.connect.bind(this);
+    this.disconnect = this.disconnect.bind(this);
+    this.getHasOut = this.getHasOut.bind(this);
+    this.onEndpointActivated = this.onEndpointActivated.bind(this);
+    this.onEndpointDeactivated = this.onEndpointDeactivated.bind(this);
+    this.send = this.send.bind(this);
   };
   
   connect(address) {
@@ -256,7 +278,7 @@ export class ZWSSocket {
   
   disconnect(address) {
     // UNIMPLEMENTED
-    console.log("Failed to disconnect - disconnect UNIMPLEMENTED");
+    throw ("Failed to disconnect - disconnect UNIMPLEMENTED");
   };
   
   getHasOut() {
@@ -264,11 +286,11 @@ export class ZWSSocket {
   };
 
   onEndpointActivated(endpoint) {
-    xattachEndpoint(endpoint);
+    this.xattachEndpoint(endpoint);
   }
 
   onEndpointDeactivated(endpoint) {
-    xendpointTerminated(endpoint);
+    this.xendpointTerminated(endpoint);
   }
 
   send(message) {
@@ -284,10 +306,16 @@ export class Dealer extends ZWSSocket {
     super();
     this.lb = new LoadBalancer();
     this.lb.writeActivated = function() {
-      if (sendReady != null) {
-        sendReady(socket);
+      if (this.sendReady != null) {
+        this.sendReady();
       }
-    };
+    }.bind(this);
+
+    this.xattachEndpoint = this.xattachEndpoint.bind(this);
+    this.xendpointTerminated = this.xendpointTerminated.bind(this);
+    this.xhasOut = this.xhasOut.bind(this);
+    this.xonMessage = this.xonMessage.bind(this);
+    this.xsend = this.xsend.bind(this);
   };
 
   xattachEndpoint(endpoint) {
@@ -301,15 +329,15 @@ export class Dealer extends ZWSSocket {
   xhasOut() {
     return this.lb.getHasOut();
   }
-
+  
+  xonMessage(endpoint, message) {
+    if (this.onMessage != null) {
+      this.onMessage(message);
+    }
+  }
+  
   xsend(message) {
     return this.lb.send(message);
-  }
-
-  xonMessage(endpoint, message) {
-    if (onMessage != null) {
-      onMessage(message);
-    }
   }
 }
 
@@ -341,7 +369,7 @@ export class Subscriber extends ZWSSocket {
     // TODO: check if the subscription already exists
     subscriptions.push(subscription)
 
-    const message = createSubscriptionMessage(subscription, true);
+    const message = createSubscriptionMessageReceived(subscription, true);
 
     for (var i = 0; i < this.endpoints.length; i++) {
       this.endpoints[i].write(message);
@@ -382,7 +410,7 @@ export class Subscriber extends ZWSSocket {
       }
     }
 
-    var message = createSubscriptionMessage(subscription, false);
+    var message = createSubscriptionMessageReceived(subscription, false);
 
     for (var i = 0; i < this.endpoints.length; i++) {
       this.endpoints[i].write(message);
@@ -395,7 +423,7 @@ export class Subscriber extends ZWSSocket {
    * @param {*} subscription
    * @param {*} subscribe
    */
-  createSubscriptionMessage(subscription, subscribe) {
+  createSubscriptionMessageReceived(subscription, subscribe) {
     var frame = new Uint8Array(subscription.length + 1);
     frame[0] = subscribe ? 1 : 0;
     frame.set(subscription, 1);
@@ -407,10 +435,10 @@ export class Subscriber extends ZWSSocket {
   }
 
   xattachEndpoint(endpoint) {
-    endpoints.push(endpoint);
+    this.endpoints.push(endpoint);
 
     for (var i = 0; i < subscriptions.length; i++) {
-      var message = createSubscriptionMessage(subscriptions[i], true);
+      var message = createSubscriptionMessageReceived(subscriptions[i], true);
 
       endpoint.write(message);
     }
@@ -418,8 +446,8 @@ export class Subscriber extends ZWSSocket {
     if (!isActive) {
       isActive = true;
 
-      if (socket.sendReady != null) {
-        socket.sendReady(socket);
+      if (this.sendReady != null) {
+        this.sendReady();
       }
     }
   }
@@ -434,12 +462,12 @@ export class Subscriber extends ZWSSocket {
   }
 
   xsend(message, more) {
-    throw new "Send not supported on sub socket";
+    throw ("Send not supported on SUB type socket");
   }
 
   xonMessage(endpoint, message) {
-    if (socket.onMessage != null) {
-      socket.onMessage(message);
+    if (this.onMessage != null) {
+      this.onMessage(message);
     }
   }
 }
@@ -450,6 +478,28 @@ export class Subscriber extends ZWSSocket {
 export class Message {
   constructor() {
     this.frames = [];  // Array of ArrayBuffers. Each ArrayBuffer represents a frame.
+
+    this.getSize = this.getSize.bind(this);
+
+    this.addBuffer = this.addBuffer.bind(this);
+    this.addDouble = this.addDouble.bind(this);
+    this.addInt = this.addInt.bind(this);
+    this.addLong = this.addLong.bind(this);
+    this.addString = this.addString.bind(this);
+
+    this.getFrame = this.getFrame.bind(this);
+    this.getPackagedFrame = this.getPackagedFrame.bind(this);
+
+    this.getDouble = this.getDouble.bind(this);
+    this.getInt = this.getInt.bind(this);
+    this.getLong = this.getLong.bind(this);
+    this.getString = this.getString.bind(this);
+
+    this.popDouble = this.popDouble.bind(this);
+    this.popInt = this.popInt.bind(this);
+    this.popLong = this.popLong.bind(this);
+    this.popString = this.popString.bind(this);
+    this.prependString = this.prependString.bind(this);
   }
 
   /**

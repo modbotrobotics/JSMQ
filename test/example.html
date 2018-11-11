@@ -2,16 +2,14 @@
     <meta charset="utf-8"/>
     <script type="module">
         import { Message, Dealer } from '../src/JSMQ.js'
-        console.log("test");
 
         var dealer = new Dealer();
         dealer.connect("ws://127.0.0.1:15798");
 
-        // we must wait for the dealer to be connected before we can send messages, any messages we are trying to send
-        // while the dealer is not connected will be dropped
         dealer.sendReady = function() {
           document.getElementById("sendButton").disabled = "";
         };
+
 
         // var subscriber = new JSMQ.Subscriber();
         // subscriber.connect("ws://localhost:15799");
@@ -39,10 +37,9 @@
             // message.popDouble());
         };
         
-        window.send = function () {
-            console.log("send");
+        window.send = function() {
             var message = new Message();
-            // message.addString(document.getElementById("messageTextBox").value);
+            message.addString(document.getElementById("messageTextBox").value);
             // message.addString("Hello");
             // message.addInt(1234);
             // message.addInt(-1234);
@@ -54,7 +51,7 @@
             dealer.send(message);
         }
 
-        function onInputKeyPress(e) {
+        window.onInputKeyPress = function(e) {
             var unicode = e.keyCode ? e.keyCode : e.charCode;
             if (unicode == 13)
               send();
