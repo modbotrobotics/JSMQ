@@ -497,7 +497,9 @@ export class Message {
     this.getUint32 = this.getUint32.bind(this);
     this.getString = this.getString.bind(this);
 
+    this.popBuffer = this.popBuffer.bind(this);
     this.popDouble = this.popDouble.bind(this);
+    this.popFrame = this.popFrame.bind(this);
     this.popInt16 = this.popInt16.bind(this);
     this.popInt32 = this.popInt32.bind(this);
     this.popUint16 = this.popUint16.bind(this);
@@ -641,19 +643,15 @@ export class Message {
   getString(i) {
     return StringUtility.Uint8ArrayToString(new Uint8Array(this.getBuffer(i)));
   }
-
+  
   /**
    * Pop the first frame of the message, as an ArrayBuffer
    * @return {ArrayBuffer} - Frame payload
    */
-  popFrame() {
-    var frame = this.frames[0];
-    this.frames.splice(0, 1);
-
-    // Remove the prepended MORE byte from the payload
-    return frame.slice(1);
+  popBuffer() {
+    return this.popFrame();
   }
-
+  
   /**
    * Pop the first frame of the message, as a double
    * @return {double}
@@ -661,6 +659,17 @@ export class Message {
   popDouble() {
     const frame = this.popFrame();
     return NumberUtility.byteArrayToDouble(frame);
+  }
+
+  /**
+   * Pop the first frame of the message
+   * @return {ArrayBuffer} - Frame payload
+   */
+  popFrame() {
+    var frame = this.frames[0];
+    this.frames.splice(0, 1);
+
+    return frame;
   }
 
   /**

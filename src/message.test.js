@@ -23,16 +23,16 @@ describe('message creation', () => {
     message = new Message();
   });
 
-  // test('add buffer', () => {
-  //   message.addBuffer(testBufferA);
-  //   message.addBuffer(testBufferB);
+  test('add buffer', () => {
+    message.addBuffer(testBufferA);
+    message.addBuffer(testBufferB);
 
-  //   expect(message.frames[0]).toBe(testBufferA);
-  //   expect(message.frames[1]).toBe(testBufferB);
+    expect(message.frames[0]).toBe(testBufferA);
+    expect(message.frames[1]).toBe(testBufferB);
     
-  //   expect(message.addBuffer(0)).toBe(testBufferA);
-  //   expect(message.addBuffer(1)).toBe(testBufferB);
-  // });
+    expect(message.getBuffer(0)).toBe(testBufferA);
+    expect(message.getBuffer(1)).toBe(testBufferB);
+  });
 
   test('add double', () => {
     message.addDouble(testDoubleA);
@@ -40,6 +40,9 @@ describe('message creation', () => {
 
     expect(message.getDouble(0)).toBeCloseTo(testDoubleA);
     expect(message.getDouble(1)).toBeCloseTo(testDoubleB);
+
+    expect(message.popDouble()).toBeCloseTo(testDoubleA);
+    expect(message.popDouble()).toBeCloseTo(testDoubleB);
   });
 
   test('add 16 bit int', () => {
@@ -48,6 +51,9 @@ describe('message creation', () => {
   
     expect(message.getInt16(0)).toEqual(testInt16Min);
     expect(message.getInt16(1)).toEqual(testInt16Max);
+  
+    expect(message.popInt16()).toEqual(testInt16Min);
+    expect(message.popInt16()).toEqual(testInt16Max);
   });
 
   test('add 32 bit int', () => {
@@ -61,6 +67,11 @@ describe('message creation', () => {
     expect(message.getInt32(1)).toEqual(testInt16Max);
     expect(message.getInt32(2)).toEqual(testInt32Min);
     expect(message.getInt32(3)).toEqual(testInt32Max);
+  
+    expect(message.popInt32()).toEqual(testInt16Min);
+    expect(message.popInt32()).toEqual(testInt16Max);
+    expect(message.popInt32()).toEqual(testInt32Min);
+    expect(message.popInt32()).toEqual(testInt32Max);
   });
 
   test('add 16 bit uint', () => {
@@ -69,6 +80,9 @@ describe('message creation', () => {
     
     expect(message.getUint16(0)).toEqual(testInt16Max);
     expect(message.getUint16(1)).toEqual(testUint16Max);
+
+    expect(message.popUint16()).toEqual(testInt16Max);
+    expect(message.popUint16()).toEqual(testUint16Max);
   });
 
   test('add 32 bit uint', () => {
@@ -81,6 +95,11 @@ describe('message creation', () => {
     expect(message.getUint32(1)).toEqual(testInt32Max);
     expect(message.getUint32(2)).toEqual(testUint16Max);
     expect(message.getUint32(3)).toEqual(testUint32Max);
+  
+    expect(message.popUint32()).toEqual(testInt16Max);
+    expect(message.popUint32()).toEqual(testInt32Max);
+    expect(message.popUint32()).toEqual(testUint16Max);
+    expect(message.popUint32()).toEqual(testUint32Max);
   });
 
   test('add string', () => {
@@ -89,5 +108,8 @@ describe('message creation', () => {
 
     expect(message.getString(0)).toMatch(testStringA);
     expect(message.getString(1)).toMatch(testStringB);
+
+    expect(message.popString()).toMatch(testStringA);
+    expect(message.popString()).toMatch(testStringB);
   });
 });
