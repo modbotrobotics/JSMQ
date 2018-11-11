@@ -156,7 +156,7 @@ class Endpoint {
    *
    * Each frame is sent as a separate message over WebSocket.
    * The ZWSSock reconstructs the final message from the series of separate messages.
-   * A "message continued" byte is prepended to each message to indicate whether there are additional
+   * A MORE byte is prepended to each message to indicate whether there are additional
    * frames coming over the wire.
    *
    * @param {Message} message - Message to write to wire
@@ -165,7 +165,7 @@ class Endpoint {
     const messageSize = message.getSize();
 
     for (let j = 0; j < messageSize; j++) {
-      const frame = message.getFrame(j);
+      const frame = message.getBuffer(j);
 
       let data = new Uint8Array(frame.byteLength + 1);
       data[0] = j == messageSize - 1 ? 0 : 1; // set the message continued byte
@@ -491,7 +491,6 @@ export class Message {
 
     this.getBuffer = this.getBuffer.bind(this);
     this.getDouble = this.getDouble.bind(this);
-    this.getFrame = this.getFrame.bind(this);
     this.getInt16 = this.getInt16.bind(this);
     this.getInt32 = this.getInt32.bind(this);
     this.getUint16 = this.getUint16.bind(this);
@@ -578,7 +577,7 @@ export class Message {
   addString(str) {
     str = String(str);
 
-    // A byte is saved for the "message continued" byte
+    // A byte is saved for the MORE byte
     let arr = new Uint8Array(str.length);
 
     StringUtility.StringToUint8Array(str, arr);
@@ -591,18 +590,8 @@ export class Message {
    * @return {ArrayBuffer} - Frame payload
    */
   getBuffer(frame) {
-    // Remove the prepended "message contframenued" byte from the payload
-    return this.frames[frame].slice(1);
-  }
-
-  /**
-   * Get the frame at the specified location
-   * @param {number} i - Frame to retrieve
-   * @return {ArrayBuffer} - Frame payload
-   */
-  getFrame(i) {
-    // Remove the prepended "message continued" byte from the payload
-    return this.frames[i];
+    // Remove the prepended MORE byte from the payload
+    return this.frames[frame];
   }
 
   /**
@@ -661,7 +650,7 @@ export class Message {
     var frame = this.frames[0];
     this.frames.splice(0, 1);
 
-    // Remove the prepended "message continued" byte from the payload
+    // Remove the prepended MORE byte from the payload
     return frame.slice(1);
   }
 
@@ -740,62 +729,62 @@ function NumberUtility() {}
 NumberUtility.littleEndian = true;
 
 NumberUtility.byteArrayToDouble = function (arr) {
-  view = new DataView(arr);
+  let view = new DataView(arr);
   return view.getFloat64(0, NumberUtility.littleEndian);
 }
 
 NumberUtility.byteArrayToInt16 = function (arr) {
-  view = new DataView(arr);
+  let view = new DataView(arr);
   return view.getInt16(0, NumberUtility.littleEndian);
 }
 
 NumberUtility.byteArrayToInt32 = function (arr) {
-  view = new DataView(arr);
+  let view = new DataView(arr);
   return view.getInt32(0, NumberUtility.littleEndian);
 }
 
 NumberUtility.byteArrayToUint16 = function (arr) {
-  view = new DataView(arr);
+  let view = new DataView(arr);
   return view.getUint16(0, NumberUtility.littleEndian);
 }
 
 NumberUtility.byteArrayToUint32 = function (arr) {
-  view = new DataView(arr);
+  let view = new DataView(arr);
   return view.getUint32(0, NumberUtility.littleEndian);
 }
 
 NumberUtility.doubleToByteArray = function (num) {
-  arr = new ArrayBuffer(8);
-  view = new DataView(arr);
+  let arr = new ArrayBuffer(8);
+  let view = new DataView(arr);
   view.setFloat64(0, num, NumberUtility.littleEndian);
   return arr;
 }
 
 NumberUtility.int16ToByteArray = function (num) {
-  arr = new ArrayBuffer(2);
-  view = new DataView(arr);
+  let arr = new ArrayBuffer(2);
+  let view = new DataView(arr);
   view.setInt16(0, num, NumberUtility.littleEndian);
   return arr;
 }
 
 NumberUtility.int32ToByteArray = function (num) {
-  arr = new ArrayBuffer(4);
-  view = new DataView(arr);
-  view.setInt16(0, num, NumberUtility.littleEndian);
+  let arr = new ArrayBuffer(4);
+  let view = new DataView(arr);
+  view.setInt32(0, num, NumberUtility.littleEndian);
   return arr;
 }
 
 NumberUtility.uint16ToByteArray = function (num) {
-  arr = new ArrayBuffer(2);
-  view = new DataView(arr);
+  let arr = new ArrayBuffer(2);
+  let view = new DataView(arr);
   view.setUint16(0, num, NumberUtility.littleEndian);
   return arr;
 }
 
 NumberUtility.uint32ToByteArray = function (num) {
-  arr = new ArrayBuffer(4);
-  view = new DataView(arr);
-  view.setUint16(0, num, NumberUtility.littleEndian);
+  let arr = new ArrayBuffer(4);
+  let view = new DataView(arr);
+  view.setUint32(0, num, NumberUtility.littleEndian);
   return arr;
 }
 

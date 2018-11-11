@@ -16,8 +16,8 @@ beforeAll(() => {
   testMessageA.addString("This is a test string");
   testMessageB.addDouble(1234.5678);
   testMessageC.addString("test_command");
-  testMessageC.addInt(-1);
-  testMessageC.addLong(-12345678);
+  testMessageC.addInt16(-1);
+  testMessageC.addInt32(-12345678);
   testMessageC.addDouble(-1234.5678);
 });
 

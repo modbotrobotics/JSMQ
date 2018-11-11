@@ -2,10 +2,12 @@ import { Message } from './JSMQ.js'
 
 const testDoubleA = 1234.56789;
 const testDoubleB = -1234.56789;
-const testIntA = 1234;
-const testIntB = -1234;
-const testIntC = 87654321;
-const testIntD = -87654321;
+const testInt16Max = 32767;
+const testInt16Min = -32768;
+const testInt32Max = 2147483647;
+const testInt32Min = -2147483648;
+const testUint16Max = 65535;
+const testUint32Max = 4294967295;
 const testStringA = "test_string_a";
 const testStringB = "";
 var testBufferA = new ArrayBuffer(2);
@@ -41,33 +43,44 @@ describe('message creation', () => {
   });
 
   test('add 16 bit int', () => {
-    message.addInt16(testIntA);
-    message.addInt16(testIntB);
+    message.addInt16(testInt16Min);
+    message.addInt16(testInt16Max);
   
-    expect(message.getInt16(0)).toEqual(testIntA);
-    expect(message.getInt16(1)).toEqual(testIntB);
+    expect(message.getInt16(0)).toEqual(testInt16Min);
+    expect(message.getInt16(1)).toEqual(testInt16Max);
   });
 
   test('add 32 bit int', () => {
-    message.addInt32(testIntC);
-    message.addInt32(testIntD);
+    message.addInt32(testInt16Min);
+    message.addInt32(testInt16Max);
+    message.addInt32(testInt32Min);
+    message.addInt32(testInt32Max);
+    message.addInt32(testUint16Max);
   
-    expect(message.getInt32(0)).toEqual(testIntC);
-    expect(message.getInt32(1)).toEqual(testIntD);
+    expect(message.getInt32(0)).toEqual(testInt16Min);
+    expect(message.getInt32(1)).toEqual(testInt16Max);
+    expect(message.getInt32(2)).toEqual(testInt32Min);
+    expect(message.getInt32(3)).toEqual(testInt32Max);
   });
 
   test('add 16 bit uint', () => {
-    message.addInt16(testIntA);
-  
-    expect(message.getInt16(0)).toEqual(testIntA);
+    message.addUint16(testInt16Max);
+    message.addUint16(testUint16Max);
+    
+    expect(message.getUint16(0)).toEqual(testInt16Max);
+    expect(message.getUint16(1)).toEqual(testUint16Max);
   });
 
   test('add 32 bit uint', () => {
-    message.addInt32(testIntA);
-    message.addInt32(testIntC);
+    message.addUint32(testInt16Max);
+    message.addUint32(testInt32Max);
+    message.addUint32(testUint16Max);
+    message.addUint32(testUint32Max);
   
-    expect(message.getInt32(0)).toEqual(testIntA);
-    expect(message.getInt32(1)).toEqual(testIntC);
+    expect(message.getUint32(0)).toEqual(testInt16Max);
+    expect(message.getUint32(1)).toEqual(testInt32Max);
+    expect(message.getUint32(2)).toEqual(testUint16Max);
+    expect(message.getUint32(3)).toEqual(testUint32Max);
   });
 
   test('add string', () => {
