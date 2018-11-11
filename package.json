@@ -1,17 +1,29 @@
 {
   "name": "jsmq",
   "version": "1.0.0",
-  "description": "Forked from [zeromq/JSMQ](https://github.com/zeromq/JSMQ).",
+  "description": "ZeroMQ over Websockets & Javascript",
   "main": "index.js",
   "directories": {
     "test": "test"
   },
-  "dependencies": {
+  "dependencies": {},
+  "devDependencies": {
+    "@babel/cli": "^7.1.5",
+    "@babel/core": "^7.1.5",
+    "@babel/preset-env": "^7.1.5",
+    "babel-core": "^7.0.0-bridge.0",
+    "babel-jest": "^23.6.0",
     "jest": "^23.6.0",
-    "mock-socket": "^8.0.5"
+    "mock-socket": "^8.0.5",
+    "regenerator-runtime": "^0.12.1"
   },
-  "devDependencies": {},
+  "jest": {
+    "transform": {
+      "^.+\\.jsx?$": "babel-jest"
+    }
+  },
   "scripts": {
+    "build": "babel src -d lib",
     "test": "jest"
   },
   "repository": {
@@ -19,7 +31,7 @@
     "url": "git+https://github.com/modbotrobotics/JSMQ.git"
   },
   "author": "Modbot",
-  "license": "ISC",
+  "license": "MPL",
   "bugs": {
     "url": "https://github.com/modbotrobotics/JSMQ/issues"
   },
