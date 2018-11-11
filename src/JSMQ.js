@@ -165,7 +165,7 @@ class Endpoint {
     const messageSize = message.getSize();
 
     for (let j = 0; j < messageSize; j++) {
-      const frame = message.getPackagedFrame(j);
+      const frame = message.getFrame(j);
 
       let data = new Uint8Array(frame.byteLength + 1);
       data[0] = j == messageSize - 1 ? 0 : 1; // set the message continued byte
@@ -483,21 +483,26 @@ export class Message {
 
     this.addBuffer = this.addBuffer.bind(this);
     this.addDouble = this.addDouble.bind(this);
-    this.addInt = this.addInt.bind(this);
-    this.addLong = this.addLong.bind(this);
+    this.addInt16 = this.addInt16.bind(this);
+    this.addInt32 = this.addInt32.bind(this);
+    this.addUint16 = this.addUint16.bind(this);
+    this.addUint32 = this.addUint32.bind(this);
     this.addString = this.addString.bind(this);
 
-    this.getFrame = this.getFrame.bind(this);
-    this.getPackagedFrame = this.getPackagedFrame.bind(this);
-
+    this.getBuffer = this.getBuffer.bind(this);
     this.getDouble = this.getDouble.bind(this);
-    this.getInt = this.getInt.bind(this);
-    this.getLong = this.getLong.bind(this);
+    this.getFrame = this.getFrame.bind(this);
+    this.getInt16 = this.getInt16.bind(this);
+    this.getInt32 = this.getInt32.bind(this);
+    this.getUint16 = this.getUint16.bind(this);
+    this.getUint32 = this.getUint32.bind(this);
     this.getString = this.getString.bind(this);
 
     this.popDouble = this.popDouble.bind(this);
     this.popInt = this.popInt.bind(this);
-    this.popLong = this.popLong.bind(this);
+    this.popInt = this.popInt.bind(this);
+    this.popInt = this.popInt.bind(this);
+    this.popInt = this.popInt.bind(this);
     this.popString = this.popString.bind(this);
     this.prependString = this.prependString.bind(this);
   }
@@ -535,19 +540,35 @@ export class Message {
   }
 
   /**
-   * Append an int to the end of the message
+   * Append a 16 bit integer to the end of the message
    * @param {number} number - Int to append
    */
-  addInt(number) {
-    this.addBuffer(NumberUtility.intToByteArray(number));
+  addInt16(number) {
+    this.addBuffer(NumberUtility.int16ToByteArray(number));
   }
 
   /**
-   * Append a long int to the end of the message
-   * @param {number} number - Long to append
+   * Append a 32 bit integer to the end of the message
+   * @param {number} number - Int to append
    */
-  addLong(number) {
-    this.addBuffer(NumberUtility.longToByteArray(number));
+  addInt32(number) {
+    this.addBuffer(NumberUtility.int32ToByteArray(number));
+  }
+
+  /**
+   * Append a 16 bit unsigned integer to the end of the message
+   * @param {number} number - Int to append
+   */
+  addUint16(number) {
+    this.addBuffer(NumberUtility.uint16ToByteArray(number));
+  }
+
+  /**
+   * Append a 32 bit unsigned integer to the end of the message
+   * @param {number} number - Int to append
+   */
+  addUint32(number) {
+    this.addBuffer(NumberUtility.uint32ToByteArray(number));
   }
 
   /**
@@ -569,7 +590,7 @@ export class Message {
    * @param {number} i - Frame to retrieve
    * @return {ArrayBuffer} - Frame payload
    */
-  getFrame(frame) {
+  getBuffer(frame) {
     // Remove the prepended "message contframenued" byte from the payload
     return this.frames[frame].slice(1);
   }
@@ -579,7 +600,7 @@ export class Message {
    * @param {number} i - Frame to retrieve
    * @return {ArrayBuffer} - Frame payload
    */
-  getPackagedFrame(i) {
+  getFrame(i) {
     // Remove the prepended "message continued" byte from the payload
     return this.frames[i];
   }
@@ -589,23 +610,39 @@ export class Message {
    * @param {*} i
    */
   getDouble(i) {
-    return NumberUtility.byteArrayToDouble(this.getFrame(i));
+    return NumberUtility.byteArrayToDouble(this.getBuffer(i));
   }
 
   /**
-   * Get an int at the specified frame location
+   * Get a 16 bit integer at the specified frame location
    * @param {*} i
    */
-  getInt(i) {
-    return NumberUtility.byteArrayToInt(this.getFrame(i));
+  getInt16(i) {
+    return NumberUtility.byteArrayToInt16(this.getBuffer(i));
   }
 
   /**
-   * Get a long int at the specified frame location
+   * Get a 32 bit integer at the specified frame location
    * @param {*} i
    */
-  getLong(i) {
-    return NumberUtility.byteArrayToLong(this.getFrame(i));
+  getInt32(i) {
+    return NumberUtility.byteArrayToInt32(this.getBuffer(i));
+  }
+
+  /**
+   * Get a 16 bit unsigned integer at the specified frame location
+   * @param {*} i
+   */
+  getUint16(i) {
+    return NumberUtility.byteArrayToUint16(this.getBuffer(i));
+  }
+
+  /**
+   * Get a 32 bit unsigned integer at the specified frame location
+   * @param {*} i
+   */
+  getUint32(i) {
+    return NumberUtility.byteArrayToUint32(this.getBuffer(i));
   }
 
   /**
@@ -613,7 +650,7 @@ export class Message {
    * @param {*} i
    */
   getString(i) {
-    return StringUtility.Uint8ArrayToString(new Uint8Array(this.getFrame(i)));
+    return StringUtility.Uint8ArrayToString(new Uint8Array(this.getBuffer(i)));
   }
 
   /**
@@ -638,21 +675,39 @@ export class Message {
   }
 
   /**
-   * Pop the first frame of the message, as an int
-   * @return {int}
+   * Pop the first frame of the message, as a 16 bit integer
+   * @return {number}
    */
-  popInt() {
+  popInt16() {
     const frame = this.popFrame();
-    return NumberUtility.byteArrayToInt(frame);
+    return NumberUtility.byteArrayToInt16(frame);
   }
 
   /**
-   * Pop the first frame of the message, as a long int
-   * @return {long}
+   * Pop the first frame of the message, as a 32 bit integer
+   * @return {number}
    */
-  popLong() {
+  popInt32() {
     const frame = this.popFrame();
-    return NumberUtility.byteArrayToLong(frame);
+    return NumberUtility.byteArrayToInt32(frame);
+  }
+
+  /**
+   * Pop the first frame of the message, as a 16 bit signed integer
+   * @return {number}
+   */
+  popUint16() {
+    const frame = this.popFrame();
+    return NumberUtility.byteArrayToUint16(frame);
+  }
+
+  /**
+   * Pop the first frame of the message, as a 32 bit signed integer
+   * @return {number}
+   */
+  popUint32() {
+    const frame = this.popFrame();
+    return NumberUtility.byteArrayToUint32(frame);
   }
 
   /**
@@ -684,40 +739,64 @@ function NumberUtility() {}
 
 NumberUtility.littleEndian = true;
 
-NumberUtility.intToByteArray = function (num) {
+NumberUtility.byteArrayToDouble = function (arr) {
+  view = new DataView(arr);
+  return view.getFloat64(0, NumberUtility.littleEndian);
+}
+
+NumberUtility.byteArrayToInt16 = function (arr) {
+  view = new DataView(arr);
+  return view.getInt16(0, NumberUtility.littleEndian);
+}
+
+NumberUtility.byteArrayToInt32 = function (arr) {
+  view = new DataView(arr);
+  return view.getInt32(0, NumberUtility.littleEndian);
+}
+
+NumberUtility.byteArrayToUint16 = function (arr) {
+  view = new DataView(arr);
+  return view.getUint16(0, NumberUtility.littleEndian);
+}
+
+NumberUtility.byteArrayToUint32 = function (arr) {
+  view = new DataView(arr);
+  return view.getUint32(0, NumberUtility.littleEndian);
+}
+
+NumberUtility.doubleToByteArray = function (num) {
+  arr = new ArrayBuffer(8);
+  view = new DataView(arr);
+  view.setFloat64(0, num, NumberUtility.littleEndian);
+  return arr;
+}
+
+NumberUtility.int16ToByteArray = function (num) {
   arr = new ArrayBuffer(2);
   view = new DataView(arr);
   view.setInt16(0, num, NumberUtility.littleEndian);
   return arr;
 }
 
-NumberUtility.byteArrayToInt = function (arr) {
-  view = new DataView(arr);
-  return view.getInt16(0, NumberUtility.littleEndian);
-}
-
-NumberUtility.longToByteArray = function (num) {
+NumberUtility.int32ToByteArray = function (num) {
   arr = new ArrayBuffer(4);
   view = new DataView(arr);
-  view.setInt32(0, num, NumberUtility.littleEndian);
+  view.setInt16(0, num, NumberUtility.littleEndian);
   return arr;
 }
 
-NumberUtility.byteArrayToLong = function (arr) {
+NumberUtility.uint16ToByteArray = function (num) {
+  arr = new ArrayBuffer(2);
   view = new DataView(arr);
-  return view.getInt32(0, NumberUtility.littleEndian);
-}
-
-NumberUtility.doubleToByteArray = function (num) {
-  arr = new ArrayBuffer(64);
-  view = new DataView(arr);
-  view.setFloat64(0, num, NumberUtility.littleEndian);
+  view.setUint16(0, num, NumberUtility.littleEndian);
   return arr;
 }
 
-NumberUtility.byteArrayToDouble = function (arr) {
+NumberUtility.uint32ToByteArray = function (num) {
+  arr = new ArrayBuffer(4);
   view = new DataView(arr);
-  return view.getFloat64(0, NumberUtility.littleEndian);
+  view.setUint16(0, num, NumberUtility.littleEndian);
+  return arr;
 }
 
 
