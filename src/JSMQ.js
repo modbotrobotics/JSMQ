@@ -119,7 +119,7 @@ class Endpoint {
 
     // Other message types are not supported and will be dropped
     } else {
-      throw ("Could not parse message -- unsupported message type");
+      throw new Error ("Could not parse message -- unsupported message type");
     }
   }
 
@@ -165,7 +165,7 @@ class Endpoint {
       const frame = message.getBuffer(j);
 
       let data = new Uint8Array(frame.byteLength + 1);
-      data[0] = j == messageSize - 1 ? 0 : 1; // set the message continued byte
+      data[0] = j == messageSize - 1 ? 0 : 1;  // set the MORE byte
       data.set(new Uint8Array(frame), 1);
 
       this.webSocket.send(data);
@@ -223,7 +223,7 @@ class LoadBalancer {
   send(message) {
     if (this.endpoints.length == 0) {
       this.isActive = false;
-      throw ("Failed to send message - no valid endpoints");
+      throw new Error ("Failed to send message - no valid endpoints");
       return false;
     }
 
@@ -275,7 +275,7 @@ export class ZWSSocket {
   
   disconnect(address) {
     // UNIMPLEMENTED
-    throw ("Failed to disconnect - disconnect UNIMPLEMENTED");
+    throw new Error("Failed to disconnect - disconnect unimplemented");
   };
   
   getHasOut() {
@@ -459,7 +459,7 @@ export class Subscriber extends ZWSSocket {
   }
 
   xsend(message, more) {
-    throw ("Send not supported on SUB type socket");
+    throw new Error("Failed to send message - send not supported on SUB type socket");
   }
 
   xonMessage(endpoint, message) {
@@ -524,7 +524,7 @@ export class Message {
       this.frames.push(data.buffer);
 
     } else {
-      throw ("Failed to add buffer to message - unknown buffer type \"" + typeof buffer + "\"");
+      throw new Error("Failed to add buffer to message - unknown buffer type \"" + typeof buffer + "\"");
     }
   }
 
@@ -632,7 +632,7 @@ export class Message {
       return this;
 
     } else {
-      throw ("Failed to insert buffer into message - unknown buffer type \"" + typeof buffer + "\"");
+      throw new Error("Failed to insert buffer into message - unknown buffer type \"" + typeof buffer + "\"");
     }
   }
 
@@ -742,7 +742,7 @@ NumberUtility.bytesToFloat = function (arr, size) {
   } else if (size == 8) {
     return view.getFloat64(0, NumberUtility.littleEndian);
   } else {
-    throw new Error("Failed to convert bytes to int - invalid size (size of " + size + ")");
+    throw new Error("Failed to convert bytes to int - invalid integer size (size of " + size + ")");
   }
 }
 
@@ -756,7 +756,7 @@ NumberUtility.bytesToInt = function (arr, size) {
   } else if (size == 4) {
     return view.getInt32(0, NumberUtility.littleEndian);
   } else {
-    throw new Error("Failed to convert bytes to int - invalid size (size of " + size + ")");
+    throw new Error("Failed to convert bytes to int - invalid integer size (size of " + size + ")");
   }
 }
 
@@ -770,7 +770,7 @@ NumberUtility.bytesToUint = function (arr, size) {
   } else if (size == 4) {
     return view.getUint32(0, NumberUtility.littleEndian);
   } else {
-    throw new Error("Failed to convert bytes to int - invalid size (size of " + size + ")");
+    throw new Error("Failed to convert bytes to int - invalid integer size (size of " + size + ")");
   }
 }
 
@@ -783,7 +783,7 @@ NumberUtility.floatToBytes = function (num, size) {
   } else if (size == 8) {
     view.setFloat64(0, num, NumberUtility.littleEndian);
   } else {
-    throw new Error("Failed to convert bytes to int - invalid size (size of " + size + ")");
+    throw new Error("Failed to convert bytes to int - invalid integer size (size of " + size + ")");
   }
   return arr;
 }
@@ -799,7 +799,7 @@ NumberUtility.intToBytes = function (num, size) {
   } else if (size == 4) {
     view.setInt32(0, num, NumberUtility.littleEndian);
   } else {
-    throw new Error("Failed to convert int to bytes - invalid size (size of " + size + ")");
+    throw new Error("Failed to convert int to bytes - invalid integer size (size of " + size + ")");
   }
   return arr;
 }
@@ -815,7 +815,7 @@ NumberUtility.uintToBytes = function (num, size) {
   } else if (size == 4) {
     view.setUint32(0, num, NumberUtility.littleEndian);
   } else {
-    throw new Error("Failed to convert int to bytes - invalid size (size of " + size + ")");
+    throw new Error("Failed to convert int to bytes - invalid integer size (size of " + size + ")");
   }
   return arr;
 }
