@@ -30,7 +30,6 @@ class Endpoint {
     this.processFrame = this.processFrame.bind(this);
     this.write = this.write.bind(this);
     
-    console.log("Connecting to \"" + this.address + "\"");
     this.open();
   }
   
@@ -65,7 +64,6 @@ class Endpoint {
    * @param {*} event
    */
   onopen(e) {
-    console.log("WebSocket connection to \"" + this.address + "\" established");
     this.connectionRetries = 0;
 
     this.connectionState = ConnectionState.open;
@@ -83,7 +81,6 @@ class Endpoint {
    * @param {*} event
    */
   onclose(e) {
-    console.log("WebSocket connection to \"" + this.address + "\" closed");
     let previousState = this.connectionState;
     this.connectionState = ConnectionState.closed;
 
