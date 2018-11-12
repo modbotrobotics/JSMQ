@@ -45,9 +45,6 @@ describe('dealer connection', () => {
 
     dealer.sendReady = ready;
     dealer.connect(addressA);
-
-    setTimeout(() => {  
-    }, 100);
   });
   
   test('dealer connection failure', () => {
