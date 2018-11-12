@@ -2,7 +2,7 @@
   "name": "jsmq",
   "version": "1.0.0",
   "description": "ZeroMQ over Websockets & Javascript",
-  "main": "index.js",
+  "main": "JSMQ/index.js",
   "directories": {
     "test": "test"
   },

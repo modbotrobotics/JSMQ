@@ -14,16 +14,15 @@ var testMessageC = new Message();
 
 beforeAll(() => {
   testMessageA.addString("This is a test string");
-  testMessageB.addDouble(1234.5678);
+  testMessageB.addFloat(1234.5678, 8);
   testMessageC.addString("test_command");
-  testMessageC.addInt16(-1);
-  testMessageC.addInt32(-12345678);
-  testMessageC.addDouble(-1234.5678);
+  testMessageC.addInt(-1, 2);
+  testMessageC.addInt(-12345678, 4);
+  testMessageC.addFloat(-1234.5678, 8);
 });
 
 
 describe('dealer connection', () => {
-  const ready = jest.fn();
   var dealer;
   var server;
 
@@ -32,33 +31,34 @@ describe('dealer connection', () => {
   });
   beforeEach(() => {
     dealer = new Dealer();
-    dealer.sendReady = ready;
     server = new Server(addressA);
-    server.on('connection', socket => {
-      console.log("Connection!");
-    });
+    server.on('connection', socket => {});
   });
 
 
-  test('dealer connection success', () => {        
-    const endpoint = expect.objectContaining({ address: addressA });
-    
-    dealer.connect(addressA);
-    setTimeout(() => {  
+  test('dealer connection success', done => {   
+    const ready = jest.fn( () => {
+      const endpoint = expect.objectContaining({ address: addressA });
       expect(dealer.endpoints).toContainEqual(endpoint);
-      expect(ready).toHaveBeenCalled();
+      done();
+    });
+
+    dealer.sendReady = ready;
+    dealer.connect(addressA);
+
+    setTimeout(() => {  
     }, 100);
   });
   
   test('dealer connection failure', () => {
     const endpoint = expect.objectContaining({ address: addressB });
+    const ready = jest.fn();
 
+    dealer.sendReady = ready;
     dealer.connect(addressB);
 
-    setTimeout(() => {  
-      expect(dealer.endpoints).toContainEqual(endpoint);
-      expect(ready).not.toHaveBeenCalled();
-    }, 100);
+    expect(dealer.endpoints).toContainEqual(endpoint);
+    expect(ready).not.toHaveBeenCalled();
   });
 });
 
@@ -121,10 +121,10 @@ describe('dealer send and receive', () => {
     dealer.connect(addressA);
     
     setTimeout(() => {
-      expect(serverOnMessage).toHaveBeenCalledTimes(3);
-      expect(serverOnMessage).toHaveBeenNthCalledWith(0, testMessageA.prependString("Received"));
-      expect(serverOnMessage).toHaveBeenNthCalledWith(1, testMessageB.prependString("Received"));
-      expect(serverOnMessage).toHaveBeenNthCalledWith(2, testMessageC.prependString("Received"));
+      expect(dealerOnMessage).toHaveBeenCalledTimes(3);
+      expect(dealerOnMessage).toHaveBeenNthCalledWith(0, testMessageA.prependString("Received"));
+      expect(dealerOnMessage).toHaveBeenNthCalledWith(1, testMessageB.prependString("Received"));
+      expect(dealerOnMessage).toHaveBeenNthCalledWith(2, testMessageC.prependString("Received"));
     }, 100);
   });
 });

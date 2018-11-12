@@ -367,7 +367,7 @@ export class Subscriber extends ZWSSocket {
     }
 
     // TODO: check if the subscription already exists
-    subscriptions.push(subscription)
+    this.subscriptions.push(subscription);
 
     const message = createSubscriptionMessageReceived(subscription, true);
 
@@ -482,30 +482,29 @@ export class Message {
     this.getSize = this.getSize.bind(this);
 
     this.addBuffer = this.addBuffer.bind(this);
-    this.addDouble = this.addDouble.bind(this);
-    this.addInt16 = this.addInt16.bind(this);
-    this.addInt32 = this.addInt32.bind(this);
-    this.addUint16 = this.addUint16.bind(this);
-    this.addUint32 = this.addUint32.bind(this);
+    this.addFloat = this.addFloat.bind(this);
+    this.addInt = this.addInt.bind(this);
     this.addString = this.addString.bind(this);
+    this.addUint = this.addUint.bind(this);
 
     this.getBuffer = this.getBuffer.bind(this);
-    this.getDouble = this.getDouble.bind(this);
-    this.getInt16 = this.getInt16.bind(this);
-    this.getInt32 = this.getInt32.bind(this);
-    this.getUint16 = this.getUint16.bind(this);
-    this.getUint32 = this.getUint32.bind(this);
+    this.getFloat = this.getFloat.bind(this);
+    this.getInt = this.getInt.bind(this);
     this.getString = this.getString.bind(this);
+    this.getUint = this.getUint.bind(this);
+
+    this.insertBuffer = this.insertBuffer.bind(this);
+    this.insertFloat = this.insertFloat.bind(this);
+    this.insertInt = this.insertInt.bind(this);
+    this.insertString = this.insertString.bind(this);
+    this.insertUint = this.insertUint.bind(this);
 
     this.popBuffer = this.popBuffer.bind(this);
-    this.popDouble = this.popDouble.bind(this);
-    this.popFrame = this.popFrame.bind(this);
-    this.popInt16 = this.popInt16.bind(this);
-    this.popInt32 = this.popInt32.bind(this);
-    this.popUint16 = this.popUint16.bind(this);
-    this.popUint32 = this.popUint32.bind(this);
+    this.popFloat = this.popFloat.bind(this);
+    this.popBuffer = this.popBuffer.bind(this);
+    this.popInt = this.popInt.bind(this);
     this.popString = this.popString.bind(this);
-    this.prependString = this.prependString.bind(this);
+    this.popUint = this.popUint.bind(this);
   }
 
   /**
@@ -533,53 +532,30 @@ export class Message {
   }
 
   /**
-   * Append a double to the end of the message
-   * @param {number} number - Double to append
+   * Append a float to the end of the message
+   * @param {number} number - Float to append
+   * @param {number} size - Size in bytes of float (default: 8)
    */
-  addDouble(number) {
-    this.addBuffer(NumberUtility.doubleToByteArray(number));
+  addFloat(number, size = 8) {
+    this.addBuffer(NumberUtility.floatToBytes(number, size));
   }
 
   /**
-   * Append a 16 bit integer to the end of the message
+   * Append a signed integer to the end of the message
    * @param {number} number - Int to append
+   * @param {number} size - Size in bytes of integer (default: 4)
    */
-  addInt16(number) {
-    this.addBuffer(NumberUtility.int16ToByteArray(number));
+  addInt(number, size = 4) {
+    this.addBuffer(NumberUtility.intToBytes(number, size));
   }
 
-  /**
-   * Append a 32 bit integer to the end of the message
-   * @param {number} number - Int to append
-   */
-  addInt32(number) {
-    this.addBuffer(NumberUtility.int32ToByteArray(number));
-  }
-
-  /**
-   * Append a 16 bit unsigned integer to the end of the message
-   * @param {number} number - Int to append
-   */
-  addUint16(number) {
-    this.addBuffer(NumberUtility.uint16ToByteArray(number));
-  }
-
-  /**
-   * Append a 32 bit unsigned integer to the end of the message
-   * @param {number} number - Int to append
-   */
-  addUint32(number) {
-    this.addBuffer(NumberUtility.uint32ToByteArray(number));
-  }
-
-  /**
+    /**
    * Append a string to the end of the message
    * @param {string} str - String to append
    */
   addString(str) {
     str = String(str);
 
-    // A byte is saved for the MORE byte
     let arr = new Uint8Array(str.length);
 
     StringUtility.StringToUint8Array(str, arr);
@@ -587,8 +563,17 @@ export class Message {
   }
 
   /**
+   * Append an unsigned integer to the end of the message
+   * @param {number} number - Int to append
+   * @param {number} size - Size in bytes of integer (default: 4)
+   */
+  addUint(number, size = 4) {
+    this.addBuffer(NumberUtility.uintToBytes(number, size));
+  }
+
+  /**
    * Get the frame at the specified location
-   * @param {number} i - Frame to retrieve
+   * @param {number} i - Frame location
    * @return {ArrayBuffer} - Frame payload
    */
   getBuffer(frame) {
@@ -597,51 +582,103 @@ export class Message {
   }
 
   /**
-   * Get a double at the specified frame location
-   * @param {*} i
+   * Get a float at the specified frame location
+   * @param {number} i - Index of frame to fetch
+   * @param {number} size - Size in bytes of float (default: 8)
    */
-  getDouble(i) {
-    return NumberUtility.byteArrayToDouble(this.getBuffer(i));
+  getFloat(i, size = 8) {
+    return NumberUtility.bytesToFloat(this.getBuffer(i), size);
   }
 
   /**
-   * Get a 16 bit integer at the specified frame location
-   * @param {*} i
+   * Get a signed integer at the specified frame location
+   * @param {number} i - Index of frame to fetch
+   * @param {number} size - Size in bytes of integer (default: 4)
    */
-  getInt16(i) {
-    return NumberUtility.byteArrayToInt16(this.getBuffer(i));
-  }
-
-  /**
-   * Get a 32 bit integer at the specified frame location
-   * @param {*} i
-   */
-  getInt32(i) {
-    return NumberUtility.byteArrayToInt32(this.getBuffer(i));
-  }
-
-  /**
-   * Get a 16 bit unsigned integer at the specified frame location
-   * @param {*} i
-   */
-  getUint16(i) {
-    return NumberUtility.byteArrayToUint16(this.getBuffer(i));
-  }
-
-  /**
-   * Get a 32 bit unsigned integer at the specified frame location
-   * @param {*} i
-   */
-  getUint32(i) {
-    return NumberUtility.byteArrayToUint32(this.getBuffer(i));
+  getInt(i, size = 4) {
+    return NumberUtility.bytesToInt(this.getBuffer(i), size);
   }
 
   /**
    * Get a string at the specified frame location
-   * @param {*} i
+   * @param {number} i - Index of frame to fetch
    */
   getString(i) {
     return StringUtility.Uint8ArrayToString(new Uint8Array(this.getBuffer(i)));
+  }
+
+  /**
+   * Get a unsigned integer at the specified frame location
+   * @param {number} i - Index of frame to fetch
+   * @param {number} size - Size in bytes of integer (default: 4)
+   */
+  getUint(i, size = 4) {
+    return NumberUtility.bytesToUint(this.getBuffer(i), size);
+  }
+  
+  /**
+   * Insert a buffer at frame index i of the message
+   * @param {number} i - Insert index
+   * @param {*} buffer - Buffer to insert
+   */
+  insertBuffer(i, data) {
+    if (i === undefined) {
+      i = 0;
+    }
+
+    if (data instanceof ArrayBuffer) {
+      this.frames.splice(i, 0, data);
+      return this;
+
+    } else if (data instanceof Uint8Array) {
+      this.frames.splice(i, 0, data.buffer);
+      return this;
+
+    } else {
+      throw ("Failed to insert buffer into message - unknown buffer type \"" + typeof buffer + "\"");
+    }
+  }
+
+  /**
+   * Insert a float at frame index i of the message
+   * @param {number} i - Insert index
+   * @param {number} number - Number to insert
+   */
+  insertFloat(i, number, size = 8) {
+    this.insertBuffer(i, NumberUtility.floatToBytes(number, size));
+  }
+
+  /**
+   * Insert a signed integer at frame index i of the message
+   * @param {number} i - Insert index
+   * @param {number} number - Number to insert
+   * @param {number} size - Size in bytes of integer (default: 4)
+   */
+  insertInt(i, number, size = 4) {
+    this.insertBuffer(i, NumberUtility.int16ToBytes(number, size));
+  }
+
+  /**
+   * Insert a string at frame index i of the message
+   * @param {number} i - Insert index
+   * @param {string} str - String to insert
+   */
+  insertString(i, str) {
+    str = String(str);
+    var arr = new Uint8Array(str.length);
+    StringUtility.StringToUint8Array(str, arr);
+
+    this.insertBuffer(i, arr.buffer);
+  }
+
+  /**
+   * Insert an unsigned integer at frame index i of the message
+   * @param {number} i - Insert index
+   * @param {number} number - Number to insert
+   * @param {number} size - Size in bytes of integer (default: 4)
+   */
+  insertUint(i, number, size = 4) {
+    this.insertBuffer(i, NumberUtility.uintToBytes(number, size));
   }
   
   /**
@@ -649,63 +686,30 @@ export class Message {
    * @return {ArrayBuffer} - Frame payload
    */
   popBuffer() {
-    return this.popFrame();
-  }
-  
-  /**
-   * Pop the first frame of the message, as a double
-   * @return {double}
-   */
-  popDouble() {
-    const frame = this.popFrame();
-    return NumberUtility.byteArrayToDouble(frame);
-  }
-
-  /**
-   * Pop the first frame of the message
-   * @return {ArrayBuffer} - Frame payload
-   */
-  popFrame() {
     var frame = this.frames[0];
     this.frames.splice(0, 1);
 
     return frame;
   }
-
+  
   /**
-   * Pop the first frame of the message, as a 16 bit integer
-   * @return {number}
+   * Pop the first frame of the message, as a float
+   * @param {number} size - Size in bytes of float (default: 8)
+   * @return {float}
    */
-  popInt16() {
-    const frame = this.popFrame();
-    return NumberUtility.byteArrayToInt16(frame);
+  popFloat(size = 8) {
+    const frame = this.popBuffer();
+    return NumberUtility.bytesToFloat(frame, size);
   }
 
   /**
-   * Pop the first frame of the message, as a 32 bit integer
+   * Pop the first frame of the message, as an integer
+   * @param {number} size - Size in bytes of integer (default: 4)
    * @return {number}
    */
-  popInt32() {
-    const frame = this.popFrame();
-    return NumberUtility.byteArrayToInt32(frame);
-  }
-
-  /**
-   * Pop the first frame of the message, as a 16 bit signed integer
-   * @return {number}
-   */
-  popUint16() {
-    const frame = this.popFrame();
-    return NumberUtility.byteArrayToUint16(frame);
-  }
-
-  /**
-   * Pop the first frame of the message, as a 32 bit signed integer
-   * @return {number}
-   */
-  popUint32() {
-    const frame = this.popFrame();
-    return NumberUtility.byteArrayToUint32(frame);
+  popInt(size = 4) {
+    const frame = this.popBuffer();
+    return NumberUtility.bytesToInt(frame, size);
   }
 
   /**
@@ -713,22 +717,18 @@ export class Message {
    * @return {string}
    */
   popString() {
-    const frame = this.popFrame();
+    const frame = this.popBuffer();
     return StringUtility.Uint8ArrayToString(new Uint8Array(frame));
   }
 
   /**
-   * Insert a string at the beginning of the message
-   * @param {string} str
+   * Pop the first frame of the message, as an unsigned integer
+   * @param {number} size - Size in bytes of integer (default: 4)
+   * @return {number}
    */
-  prependString(str) {
-    str = String(str);
-
-    var arr = new Uint8Array(str.length);
-
-    StringUtility.StringToUint8Array(str, arr);
-
-    this.frames.splice(0, 0, arr.buffer);
+  popUint(size = 4) {
+    const frame = this.popBuffer();
+    return NumberUtility.bytesToUint(frame, size);
   }
 }
 
@@ -737,66 +737,91 @@ function NumberUtility() {}
 
 NumberUtility.littleEndian = true;
 
-NumberUtility.byteArrayToDouble = function (arr) {
+NumberUtility.bytesToFloat = function (arr, size) {
   let view = new DataView(arr);
-  return view.getFloat64(0, NumberUtility.littleEndian);
+
+  if (size == 4) {
+    return view.getFloat32(0, NumberUtility.littleEndian);
+  } else if (size == 8) {
+    return view.getFloat64(0, NumberUtility.littleEndian);
+  } else {
+    throw new Error("Failed to convert bytes to int - invalid size (size of " + size + ")");
+  }
 }
 
-NumberUtility.byteArrayToInt16 = function (arr) {
+NumberUtility.bytesToInt = function (arr, size) {
   let view = new DataView(arr);
-  return view.getInt16(0, NumberUtility.littleEndian);
+
+  if (size == 1) {
+    return view.getInt8(0, NumberUtility.littleEndian);
+  } else if (size == 2) {
+    return view.getInt16(0, NumberUtility.littleEndian);
+  } else if (size == 4) {
+    return view.getInt32(0, NumberUtility.littleEndian);
+  } else {
+    throw new Error("Failed to convert bytes to int - invalid size (size of " + size + ")");
+  }
 }
 
-NumberUtility.byteArrayToInt32 = function (arr) {
+NumberUtility.bytesToUint = function (arr, size) {
   let view = new DataView(arr);
-  return view.getInt32(0, NumberUtility.littleEndian);
+
+  if (size == 1) {
+    return view.getUint8(0, NumberUtility.littleEndian);
+  } else if (size == 2) {
+    return view.getUint16(0, NumberUtility.littleEndian);
+  } else if (size == 4) {
+    return view.getUint32(0, NumberUtility.littleEndian);
+  } else {
+    throw new Error("Failed to convert bytes to int - invalid size (size of " + size + ")");
+  }
 }
 
-NumberUtility.byteArrayToUint16 = function (arr) {
-  let view = new DataView(arr);
-  return view.getUint16(0, NumberUtility.littleEndian);
-}
-
-NumberUtility.byteArrayToUint32 = function (arr) {
-  let view = new DataView(arr);
-  return view.getUint32(0, NumberUtility.littleEndian);
-}
-
-NumberUtility.doubleToByteArray = function (num) {
+NumberUtility.floatToBytes = function (num, size) {
   let arr = new ArrayBuffer(8);
   let view = new DataView(arr);
-  view.setFloat64(0, num, NumberUtility.littleEndian);
+
+  if (size == 4) {
+    view.setFloat32(0, num, NumberUtility.littleEndian);
+  } else if (size == 8) {
+    view.setFloat64(0, num, NumberUtility.littleEndian);
+  } else {
+    throw new Error("Failed to convert bytes to int - invalid size (size of " + size + ")");
+  }
   return arr;
 }
 
-NumberUtility.int16ToByteArray = function (num) {
-  let arr = new ArrayBuffer(2);
+NumberUtility.intToBytes = function (num, size) {
+  let arr = new ArrayBuffer(size);
   let view = new DataView(arr);
-  view.setInt16(0, num, NumberUtility.littleEndian);
+
+  if (size == 1) {
+    view.setInt8(0, num, NumberUtility.littleEndian);
+  } else if (size == 2) {
+    view.setInt16(0, num, NumberUtility.littleEndian);
+  } else if (size == 4) {
+    view.setInt32(0, num, NumberUtility.littleEndian);
+  } else {
+    throw new Error("Failed to convert int to bytes - invalid size (size of " + size + ")");
+  }
   return arr;
 }
 
-NumberUtility.int32ToByteArray = function (num) {
-  let arr = new ArrayBuffer(4);
+NumberUtility.uintToBytes = function (num, size) {
+  let arr = new ArrayBuffer(size);
   let view = new DataView(arr);
-  view.setInt32(0, num, NumberUtility.littleEndian);
+
+  if (size == 1) {
+    view.setUint8(0, num, NumberUtility.littleEndian);
+  } else if (size == 2) {
+    view.setUint16(0, num, NumberUtility.littleEndian);
+  } else if (size == 4) {
+    view.setUint32(0, num, NumberUtility.littleEndian);
+  } else {
+    throw new Error("Failed to convert int to bytes - invalid size (size of " + size + ")");
+  }
   return arr;
 }
-
-NumberUtility.uint16ToByteArray = function (num) {
-  let arr = new ArrayBuffer(2);
-  let view = new DataView(arr);
-  view.setUint16(0, num, NumberUtility.littleEndian);
-  return arr;
-}
-
-NumberUtility.uint32ToByteArray = function (num) {
-  let arr = new ArrayBuffer(4);
-  let view = new DataView(arr);
-  view.setUint32(0, num, NumberUtility.littleEndian);
-  return arr;
-}
-
 
 // String Utility
 function StringUtility() {}
