@@ -2,9 +2,10 @@
  * WebSocket connection state
  */
 const ConnectionState = Object.freeze({
-  closed:                 1,
-  connecting:             2,
-  open:                   3,
+  CONNECTING:             0,
+  OPEN:                   1,
+  CLOSING:                2,
+  CLOSED:                 3,
 });
 
 /**
@@ -16,44 +17,38 @@ class Endpoint {
     this.address = address;
     this.incomingMessage = null;
     this.connectionRetries = 0;
-    this.connectionState = ConnectionState.closed;
+    this.connectionState = ConnectionState.CLOSED;
     this.webSocket = null;
     
     this.activated = null;
     this.deactivated = null;
-    this.isOpen = () => this.connectionState == ConnectionState.open;
     
-    this.open = this.open.bind(this);
+    this.close = this.close.bind(this);
+    this.isOpen = this.isOpen.bind(this);
     this.onclose = this.onclose.bind(this);
     this.onmessage = this.onmessage.bind(this);
     this.onopen = this.onopen.bind(this);
+    this.open = this.open.bind(this);
     this.processFrame = this.processFrame.bind(this);
     this.write = this.write.bind(this);
     
     this.open();
   }
-  
+
   /**
-   * Open a WebSocket connection to the endpoint address
+   * Close an open WebSocket connection or connection attempt
+   * @param {number} code - A numeric value status code explaining why the connection is being closed
+   * @param {string} reason - A string explaining why the connection is being clsoed
    */
-  open() {
-    if (this.webSocket != null) {
-      this.webSocket.onopen = null;
-      this.webSocket.onclose = null;
-      this.webSocket.onmessage = null;
+  close(code = undefined, reason = undefined) {
+    if (code === undefined) {
+      code = CloseEvent.CLOSE_NO_STATUS;  // WebSocket CloseEvent code 1005 "No Status Recvd"
     }
+    this.webSocket.close(code, reason);
+  }
 
-    this.outgoingArray = [];
-
-    this.webSocket = new window.WebSocket(this.address, ["WSNetMQ"]);
-    this.webSocket.binaryType = "arraybuffer";
-    this.connectionState = ConnectionState.connecting;
-
-    this.webSocket.onopen = this.onopen;
-    this.webSocket.onclose = this.onclose;
-    this.webSocket.onmessage = this.onmessage;
-
-    this.connectionRetries++;
+  isOpen() {
+    return (this.connectionState === ConnectionState.OPEN);
   }
 
   /**
@@ -61,12 +56,12 @@ class Endpoint {
    *
    * On open, perform activated actions, set endpoint state to open.
    *
-   * @param {*} event
+   * @param {*} e - event (unused)
    */
   onopen(e) {
     this.connectionRetries = 0;
 
-    this.connectionState = ConnectionState.open;
+    this.connectionState = ConnectionState.OPEN;
     if (this.activated != null) {
       this.activated(this);
     }
@@ -78,13 +73,13 @@ class Endpoint {
    * On close, perform deactivated actions, set state to ClosedState.
    * Attempts to reconnect, until the number of reconnect tries exceeds the reconnect try limit.
    *
-   * @param {*} event
+   * @param {*} e - event (unused)
    */
   onclose(e) {
     let previousState = this.connectionState;
-    this.connectionState = ConnectionState.closed;
+    this.connectionState = ConnectionState.CLOSED;
 
-    if (previousState == ConnectionState.open && this.deactivated != null) {
+    if (previousState == ConnectionState.OPEN && this.deactivated != null) {
       this.deactivated(this);
     }
 
@@ -96,47 +91,82 @@ class Endpoint {
   }
 
   /**
-   * Callback on WebSocket message received
+   * Callback executed on WebSocket.onmessage
    *
    * Attempt to parse the received message.
-   * Parse raw blobs to ArrayBuffer before parsing frames.
+   * Parse raw blobs to ArrayBuffer before processing the frame data.
    *
-   * @param {*} event - The message event
+   * @param {*} e - The message event; May contain a Blob or ArrayBuffer
    */
-  onmessage(event) {
+  onmessage(e) {
     // Parse blobs
-    if (event.data instanceof Blob) {
+    if (e.data instanceof Blob) {
       let arrayBuffer;
       let fileReader = new FileReader();
       fileReader.onload = function () {
         this.processFrame(this.result);
       };
-      fileReader.readAsArrayBuffer(event.data);
+      fileReader.readAsArrayBuffer(e.data);
+
+    // Parse String
+    } else if (typeof(e.data) === 'string' || e.data instanceof String) {
+      let strs = e.data.split(",");
+      let arr = strs.map( str => {
+        let result = parseInt(str);
+        if (result === NaN || result > 255) {
+          throw new Error("Could not parse message -- invalid string representation of data");
+        }
+        return result;
+      });
+      this.processFrame(arr);
 
     // Parse ArrayBuffer
-    } else if (event.data instanceof ArrayBuffer) {
-      this.processFrame(event.data);
+    } else if (e.data instanceof ArrayBuffer) {
+      this.processFrame(e.data);
 
     // Other message types are not supported and will be dropped
     } else {
-      throw new Error ("Could not parse message -- unsupported message type");
+      throw new Error ("Could not parse message -- unsupported message type \"" + typeof e.data + "\":", e.data);
     }
   }
 
   /**
-   * Process a message frame, adding the data as an ArrayBuffer to its list of frames
+   * Open a WebSocket connection to the endpoint address
+   */
+  open() {
+    if (this.webSocket != null) {
+      this.webSocket.onopen = null;
+      this.webSocket.onclose = null;
+      this.webSocket.onmessage = null;
+    }
+
+    this.webSocket = new window.WebSocket(this.address, ["WSNetMQ"]);
+    this.webSocket.binaryType = "arraybuffer";
+    this.connectionState = ConnectionState.CONNECTING;
+
+    this.webSocket.onopen = this.onopen;
+    this.webSocket.onclose = this.onclose;
+    this.webSocket.onmessage = this.onmessage;
+
+    this.connectionRetries++;
+  }
+
+  /**
+   * Process a message frame, adding the payload as an ArrayBuffer to its list of frames
    *
    * @param {ArrayBuffer} frame
    */
   processFrame(frame) {
     const view = new Uint8Array(frame);
     const more = view[0];
+    const payload = new Uint8Array(view.subarray(1));
     
     if (this.incomingMessage == null) {
       this.incomingMessage = new Message();
     }
-    
-    this.incomingMessage.addBuffer(view.subarray(1));
+
+    // Add buffer to the incoming message, removing the MORE byte
+    this.incomingMessage.addBuffer(payload);
     
     // last message
     if (more == 0) {
@@ -164,8 +194,10 @@ class Endpoint {
     for (let j = 0; j < messageSize; j++) {
       const frame = message.getBuffer(j);
 
+
       let data = new Uint8Array(frame.byteLength + 1);
-      data[0] = j == messageSize - 1 ? 0 : 1;  // set the MORE byte
+      let more = j == messageSize - 1 ? 0 : 1;
+      data[0] = more;  // set the MORE byte
       data.set(new Uint8Array(frame), 1);
 
       this.webSocket.send(data);
@@ -190,7 +222,7 @@ class LoadBalancer {
   }
   /**
    * Attach: add an endpoint to list of endpoints
-   * @param {Endpoint} endpoint - The endpoint to attach to
+   * @param {Endpoint} endpoint - The endpoint to attach
    */
   attach(endpoint) {
     this.endpoints.push(endpoint);
@@ -255,7 +287,6 @@ export class ZWSSocket {
   constructor () {
     this.endpoints = [];
     this.onMessage = null;
-    this.sendReady = null;
 
     this.connect = this.connect.bind(this);
     this.disconnect = this.disconnect.bind(this);
@@ -273,9 +304,18 @@ export class ZWSSocket {
     this.endpoints.push(endpoint);
   };
   
-  disconnect(address) {
-    // UNIMPLEMENTED
-    throw new Error("Failed to disconnect - disconnect unimplemented");
+  disconnect(address, code = undefined, reason = undefined) {
+    const endpoint = this.endpoints.find(endpoint => {
+      return (endpoint.address === address);
+    });
+
+    if (endpoint !== undefined) {
+      endpoint.close(code, reason);
+      this.endpoints.splice(this.endpoints.indexOf(endpoint), 1);
+    } else {
+      throw new Error("Failed to disconnect from address \""
+        + address + "\" - endpoint not connected to this address");
+    }
   };
   
   getHasOut() {
@@ -515,6 +555,7 @@ export class Message {
   /**
    * Append a buffer to the end of the message
    * @param {ArrayBuffer} buffer - Buffer of data to append
+   * @return {Message} - Updated message
    */
   addBuffer(data) {
     if (data instanceof ArrayBuffer) {
@@ -522,33 +563,37 @@ export class Message {
 
     } else if (data instanceof Uint8Array) {
       this.frames.push(data.buffer);
-
+      
     } else {
       throw new Error("Failed to add buffer to message - unknown buffer type \"" + typeof buffer + "\"");
     }
+    return this;
   }
 
   /**
    * Append a float to the end of the message
    * @param {number} number - Float to append
    * @param {number} size - Size in bytes of float (default: 8)
+   * @return {Message} - Updated message
    */
   addFloat(number, size = 8) {
-    this.addBuffer(NumberUtility.floatToBytes(number, size));
+    return this.addBuffer(NumberUtility.floatToBytes(number, size));
   }
 
   /**
    * Append a signed integer to the end of the message
    * @param {number} number - Int to append
    * @param {number} size - Size in bytes of integer (default: 4)
+   * @return {Message} - Updated message
    */
   addInt(number, size = 4) {
-    this.addBuffer(NumberUtility.intToBytes(number, size));
+    return this.addBuffer(NumberUtility.intToBytes(number, size));
   }
 
     /**
    * Append a string to the end of the message
    * @param {string} str - String to append
+   * @return {Message} - Updated message
    */
   addString(str) {
     str = String(str);
@@ -556,16 +601,17 @@ export class Message {
     let arr = new Uint8Array(str.length);
 
     StringUtility.StringToUint8Array(str, arr);
-    this.addBuffer(arr);
+    return this.addBuffer(arr);
   }
 
   /**
    * Append an unsigned integer to the end of the message
    * @param {number} number - Int to append
    * @param {number} size - Size in bytes of integer (default: 4)
+   * @return {Message} - Updated message
    */
   addUint(number, size = 4) {
-    this.addBuffer(NumberUtility.uintToBytes(number, size));
+    return this.addBuffer(NumberUtility.uintToBytes(number, size));
   }
 
   /**
@@ -574,7 +620,6 @@ export class Message {
    * @return {ArrayBuffer} - Frame payload
    */
   getBuffer(frame) {
-    // Remove the prepended MORE byte from the payload
     return this.frames[frame];
   }
 
@@ -617,6 +662,7 @@ export class Message {
    * Insert a buffer at frame index i of the message
    * @param {number} i - Insert index
    * @param {*} buffer - Buffer to insert
+   * @return {Message} - Updated message
    */
   insertBuffer(i, data) {
     if (i === undefined) {
@@ -625,24 +671,24 @@ export class Message {
 
     if (data instanceof ArrayBuffer) {
       this.frames.splice(i, 0, data);
-      return this;
 
     } else if (data instanceof Uint8Array) {
       this.frames.splice(i, 0, data.buffer);
-      return this;
-
+      
     } else {
       throw new Error("Failed to insert buffer into message - unknown buffer type \"" + typeof buffer + "\"");
     }
+    return this;
   }
 
   /**
    * Insert a float at frame index i of the message
    * @param {number} i - Insert index
    * @param {number} number - Number to insert
+   * @return {Message} - Updated message
    */
   insertFloat(i, number, size = 8) {
-    this.insertBuffer(i, NumberUtility.floatToBytes(number, size));
+    return this.insertBuffer(i, NumberUtility.floatToBytes(number, size));
   }
 
   /**
@@ -650,22 +696,24 @@ export class Message {
    * @param {number} i - Insert index
    * @param {number} number - Number to insert
    * @param {number} size - Size in bytes of integer (default: 4)
+   * @return {Message} - Updated message
    */
   insertInt(i, number, size = 4) {
-    this.insertBuffer(i, NumberUtility.int16ToBytes(number, size));
+    return this.insertBuffer(i, NumberUtility.int16ToBytes(number, size));
   }
 
   /**
    * Insert a string at frame index i of the message
    * @param {number} i - Insert index
    * @param {string} str - String to insert
+   * @return {Message} - Updated message
    */
   insertString(i, str) {
     str = String(str);
     var arr = new Uint8Array(str.length);
     StringUtility.StringToUint8Array(str, arr);
 
-    this.insertBuffer(i, arr.buffer);
+    return this.insertBuffer(i, arr.buffer);
   }
 
   /**
@@ -673,9 +721,10 @@ export class Message {
    * @param {number} i - Insert index
    * @param {number} number - Number to insert
    * @param {number} size - Size in bytes of integer (default: 4)
+   * @return {Message} - Updated message
    */
   insertUint(i, number, size = 4) {
-    this.insertBuffer(i, NumberUtility.uintToBytes(number, size));
+    return this.insertBuffer(i, NumberUtility.uintToBytes(number, size));
   }
   
   /**

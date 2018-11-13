@@ -24,7 +24,7 @@
   },
   "scripts": {
     "build": "babel src -d lib",
-    "test": "jest"
+    "test": "jest --runInBand --verbose"
   },
   "repository": {
     "type": "git",

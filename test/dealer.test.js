@@ -11,15 +11,26 @@ var testMessageA = new Message();
 var testMessageB = new Message();
 var testMessageC = new Message();
 
+testMessageA.addString("This is a test string");
+testMessageB.addFloat(1234.5678, 8);
+testMessageC.addString("test_command");
+testMessageC.addInt(-1, 2);
+testMessageC.addInt(-12345678, 4);
+testMessageC.addFloat(-1234.5678, 8);
 
-beforeAll(() => {
-  testMessageA.addString("This is a test string");
-  testMessageB.addFloat(1234.5678, 8);
-  testMessageC.addString("test_command");
-  testMessageC.addInt(-1, 2);
-  testMessageC.addInt(-12345678, 4);
-  testMessageC.addFloat(-1234.5678, 8);
-});
+/**
+ * Helper function to recreate a ZeroMQ frame "message" with a MORE byte
+ *
+ * ZeroMQ frames are sent as individual messages over WebSocket.
+ * A MORE byte is prepended to each message to indicate whether there are additional
+ * frames coming over the wire of the same ZeroMQ message.
+ */
+const messageFrameFromBuffer = (buffer, more) => {
+  let data = new Uint8Array(buffer.byteLength + 1);
+  data[0] = more;
+  data.set(new Uint8Array(buffer), 1);
+  return data;
+}
 
 
 describe('dealer connection', () => {
@@ -34,7 +45,6 @@ describe('dealer connection', () => {
     server = new Server(addressA);
     server.on('connection', socket => {});
   });
-
 
   test('dealer connection success', done => {   
     const ready = jest.fn( () => {
@@ -57,55 +67,110 @@ describe('dealer connection', () => {
     expect(dealer.endpoints).toContainEqual(endpoint);
     expect(ready).not.toHaveBeenCalled();
   });
+
+  test('dealer disconnection success', done => {   
+    const ready = jest.fn( () => {
+      const endpoint = expect.objectContaining({ address: addressA });
+      expect(dealer.endpoints).toContainEqual(endpoint);
+      
+      dealer.disconnect(addressA);
+      expect(dealer.endpoints).not.toContainEqual(endpoint);
+      done();
+    });
+
+    dealer.sendReady = ready;
+    dealer.connect(addressA);
+  });
+  
+  test('dealer disconnection failure', done => {   
+    const ready = jest.fn( () => {
+      const endpoint = expect.objectContaining({ address: addressA });
+      expect(dealer.endpoints).toContainEqual(endpoint);
+      
+      expect( () => { dealer.disconnect(addressB) }).toThrowError('Failed to disconnect from address');
+      expect(dealer.endpoints).toContainEqual(endpoint);
+      done();
+    });
+
+    dealer.sendReady = ready;
+    dealer.connect(addressA);
+  });
+  
 });
 
 
 describe('dealer send and receive', () => {
   var dealer;
   var server;
+  var messageCount = 0;
+  var testMessages = [testMessageA, testMessageB, testMessageC];
+  var totalFrameCount = testMessages.map(message => {  // Total number of frames
+    return message.getSize();
+  }).reduce((sum, element) => { return sum + element }, 0);
   
   afterEach(() => {
+    dealer.disconnect(addressA)
     server.close();
   });
 
   beforeEach(() => {
+    messageCount = 0;
+
     dealer = new Dealer();
     server = new Server(addressA);
   });
 
-  test('dealer sends requests', () => {
-    const serverOnMessage = jest.fn(message => { 
+  test('dealer sends requests', done => {
+    const verifyTest = jest.fn(() => {
+      // Expect server to have received the ZeroMQ messages
+      //  split into one WebSocket message per ZeroMQ frame, with more bytes
+      expect(serverOnMessage).toBeCalledTimes(totalFrameCount);
+
+      expect(serverOnMessage).toHaveBeenNthCalledWith(1, messageFrameFromBuffer(testMessageA.getBuffer(0), 0));
+      expect(serverOnMessage).toHaveBeenNthCalledWith(2, messageFrameFromBuffer(testMessageB.getBuffer(0), 0));
+      expect(serverOnMessage).toHaveBeenNthCalledWith(3, messageFrameFromBuffer(testMessageC.getBuffer(0), 1));
+      expect(serverOnMessage).toHaveBeenNthCalledWith(4, messageFrameFromBuffer(testMessageC.getBuffer(1), 1));
+      expect(serverOnMessage).toHaveBeenNthCalledWith(5, messageFrameFromBuffer(testMessageC.getBuffer(2), 1));
+      expect(serverOnMessage).toHaveBeenNthCalledWith(6, messageFrameFromBuffer(testMessageC.getBuffer(3), 0));
+      done();
+    });
+
+    const serverOnMessage = jest.fn(message => {
+      messageCount++;
+      if (messageCount === totalFrameCount) {
+        verifyTest();
+      }
+    });
+
+    const ready = jest.fn(message => {
+      dealer.send(testMessageA);
+      dealer.send(testMessageB);
+      dealer.send(testMessageC);
     });
 
     server.on('connection', socket => {
       socket.on('message', serverOnMessage);
     });
     
-    const ready = jest.fn(message => {
-      dealer.send(testMessageA);
-      dealer.send(testMessageB);
-      dealer.send(testMessageC);
-    });
-    
     dealer.sendReady = ready;
     dealer.connect(addressA);
-    
-    setTimeout(() => {
-      expect(serverOnMessage).toHaveBeenCalledTimes(3);
-      expect(serverOnMessage).toHaveBeenNthCalledWith(0, testMessageA);
-      expect(serverOnMessage).toHaveBeenNthCalledWith(1, testMessageB);
-      expect(serverOnMessage).toHaveBeenNthCalledWith(2, testMessageC);
-    }, 100);
   });
 
-  test('dealer receives replies', () => {
-    const dealerOnMessage = jest.fn(message => {});
-    const serverOnMessage = jest.fn(message => {
-      socket.send(message.prependString("Received"));
+  test('dealer receives replies', done => {
+    const verifyTest = jest.fn(() => {
+      expect(dealerOnMessage).toBeCalledTimes(testMessages.length);
+      expect(dealerOnMessage.mock.calls[0][0].frames).toEqual(testMessageA.frames);
+      expect(dealerOnMessage.mock.calls[1][0].frames).toEqual(testMessageB.frames);
+      expect(dealerOnMessage.mock.calls[2][0].frames).toEqual(testMessageC.frames);
+      done();
     });
 
-    server.on('connection', socket => {
-      socket.on('message', serverOnMessage);
+    const dealerOnMessage = jest.fn(message => {
+      messageCount++;
+
+      if (messageCount === testMessages.length) {
+        verifyTest();
+      }
     });
     
     const ready = jest.fn(message => {
@@ -113,15 +178,15 @@ describe('dealer send and receive', () => {
       dealer.send(testMessageB);
       dealer.send(testMessageC);
     });
+
+    server.on('connection', socket => {
+      socket.on('message', message => {
+        socket.send(message); 
+      });
+    });
     
     dealer.sendReady = ready;
+    dealer.onMessage = dealerOnMessage;
     dealer.connect(addressA);
-    
-    setTimeout(() => {
-      expect(dealerOnMessage).toHaveBeenCalledTimes(3);
-      expect(dealerOnMessage).toHaveBeenNthCalledWith(0, testMessageA.prependString("Received"));
-      expect(dealerOnMessage).toHaveBeenNthCalledWith(1, testMessageB.prependString("Received"));
-      expect(dealerOnMessage).toHaveBeenNthCalledWith(2, testMessageC.prependString("Received"));
-    }, 100);
   });
 });
