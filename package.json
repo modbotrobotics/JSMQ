@@ -1,0 +1,39 @@
+{
+  "name": "jsmq",
+  "version": "1.0.0",
+  "description": "ZeroMQ over Websockets & Javascript",
+  "main": "JSMQ/index.js",
+  "directories": {
+    "test": "test"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@babel/cli": "^7.1.5",
+    "@babel/core": "^7.1.5",
+    "@babel/preset-env": "^7.1.5",
+    "babel-core": "^7.0.0-bridge.0",
+    "babel-jest": "^23.6.0",
+    "jest": "^23.6.0",
+    "mock-socket": "^8.0.5",
+    "regenerator-runtime": "^0.12.1"
+  },
+  "jest": {
+    "transform": {
+      "^.+\\.jsx?$": "babel-jest"
+    }
+  },
+  "scripts": {
+    "build": "babel src -d lib",
+    "test": "jest --runInBand --verbose"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/modbotrobotics/JSMQ.git"
+  },
+  "author": "Modbot",
+  "license": "MPL",
+  "bugs": {
+    "url": "https://github.com/modbotrobotics/JSMQ/issues"
+  },
+  "homepage": "https://github.com/modbotrobotics/JSMQ#readme"
+}
