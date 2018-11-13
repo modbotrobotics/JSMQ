@@ -1,61 +1,71 @@
 /**
+ * WebSocket connection state
+ */
+const ConnectionState = Object.freeze({
+  CONNECTING:             0,
+  OPEN:                   1,
+  CLOSING:                2,
+  CLOSED:                 3,
+});
+
+/**
  * Class representing a WebSocket endpoint
  * @param {string} address - The endpoint address (ex: "ws://127.0.0.1:15798")
  */
-function Endpoint(address) {
-
-  var ClosedState = 0;
-  var ConnectingState = 1;
-  var ActiveState = 2;
-
-  var that = this;
-  var incomingMessage = null;
-  var reconnectTries = 0;
-  var state = ClosedState;
-  var webSocket = null;
-
-  console.log("Connecting to \"" + address + "\"");
-  open();
+class Endpoint {
+  constructor(address) {
+    this.address = address;
+    this.incomingMessage = null;
+    this.connectionRetries = 0;
+    this.connectionState = ConnectionState.CLOSED;
+    this.webSocket = null;
+    
+    this.activated = null;
+    this.deactivated = null;
+    
+    this.close = this.close.bind(this);
+    this.isOpen = this.isOpen.bind(this);
+    this.onclose = this.onclose.bind(this);
+    this.onmessage = this.onmessage.bind(this);
+    this.onopen = this.onopen.bind(this);
+    this.open = this.open.bind(this);
+    this.processFrame = this.processFrame.bind(this);
+    this.write = this.write.bind(this);
+    
+    this.open();
+  }
 
   /**
-   * Open a WebSocket connection to the endpoint address
+   * Close an open WebSocket connection or connection attempt
+   * @param {number} code - A numeric value status code explaining why the connection is being closed
+   * @param {string} reason - A string explaining why the connection is being clsoed
    */
-  function open() {
-    if (webSocket != null) {
-      webSocket.onopen = null;
-      webSocket.onclose = null;
-      webSocket.onmessage = null;
+  close(code = undefined, reason = undefined) {
+    if (code === undefined) {
+      code = CloseEvent.CLOSE_NO_STATUS;  // WebSocket CloseEvent code 1005 "No Status Recvd"
     }
+    this.webSocket.close(code, reason);
+  }
 
-    outgoingArray = [];
-
-    webSocket = new window.WebSocket(address, ["WSNetMQ"]);
-    webSocket.binaryType = "arraybuffer";
-    state = ConnectingState;
-
-    webSocket.onopen = onOpen;
-    webSocket.onclose = onClose;
-    webSocket.onmessage = onMessage;
-
-    reconnectTries++;
+  isOpen() {
+    return (this.connectionState === ConnectionState.OPEN);
   }
 
   /**
    * Callback on WebSocket connection opened
    *
-   * On open, perform activated actions, set endpoint state to ActiveState.
+   * On open, perform activated actions, set endpoint state to open.
    *
-   * @param {*} event
+   * @param {*} e - event (unused)
    */
-  function onOpen (e) {
-    console.log("WebSocket connection to \"" + address + "\" established");
-    reconnectTries = 0;
+  onopen(e) {
+    this.connectionRetries = 0;
 
-    state = ActiveState;
-    if (that.activated != null) {
-      that.activated(that);
+    this.connectionState = ConnectionState.OPEN;
+    if (this.activated != null) {
+      this.activated(this);
     }
-  };
+  }
 
   /**
    * Callback on WebSocket connection closed
@@ -63,98 +73,110 @@ function Endpoint(address) {
    * On close, perform deactivated actions, set state to ClosedState.
    * Attempts to reconnect, until the number of reconnect tries exceeds the reconnect try limit.
    *
-   * @param {*} event
+   * @param {*} e - event (unused)
    */
-  function onClose(e) {
-    console.log("WebSocket connection to \"" + address + "\" closed");
-    var stateBefore = state;
-    state = ClosedState;
+  onclose(e) {
+    let previousState = this.connectionState;
+    this.connectionState = ConnectionState.CLOSED;
 
-    if (stateBefore == ActiveState && that.deactivated != null) {
-      that.deactivated(that);
+    if (previousState == ConnectionState.OPEN && this.deactivated != null) {
+      this.deactivated(this);
     }
 
-    if (reconnectTries > 10) {
-      window.setTimeout(open, 2000);
+    if (this.connectionRetries > 10) {
+      window.setTimeout(this.open, 2000);
     } else {
-      open();
-    }
-  };
-
-  /**
-   * Callback on WebSocket message received
-   *
-   * Attempt to parse the received message.
-   * Parse raw blobs to ArrayBuffer before parsing frames.
-   *
-   * @param {*} event - The message event
-   */
-  function onMessage(event) {
-    // Parse blobs
-    if (event.data instanceof Blob) {
-      var arrayBuffer;
-      var fileReader = new FileReader();
-      fileReader.onload = function () {
-        processFrame(this.result);
-      };
-      fileReader.readAsArrayBuffer(event.data);
-
-    // Parse ArrayBuffer
-    } else if (event.data instanceof ArrayBuffer) {
-      processFrame(event.data);
-
-    // Other message types are not supported and will be dropped
-    } else {
-      console.log("Could not parse message -- unsupported message type");
-    }
-  };
-
-  /**
-   * Process a message frame, adding the data as an ArrayBuffer to its list of frames
-   *
-   * @param {ArrayBuffer} frame
-   */
-  function processFrame(frame) {
-    var view = new Uint8Array(frame);
-    var more = view[0];
-
-    if (incomingMessage == null) {
-      incomingMessage = new JSMQ.Message();
-    }
-
-    incomingMessage.addBuffer(view.subarray(1));
-
-    // last message
-    if (more == 0) {
-      if (that.onMessage != null) {
-        that.onMessage(that, incomingMessage);
-      }
-
-      incomingMessage = null;
+      this.open();
     }
   }
 
   /**
-   * TODO
+   * Callback executed on WebSocket.onmessage
+   *
+   * Attempt to parse the received message.
+   * Parse raw blobs to ArrayBuffer before processing the frame data.
+   *
+   * @param {*} e - The message event; May contain a Blob or ArrayBuffer
    */
-  this.activated = null;
+  onmessage(e) {
+    // Parse blobs
+    if (e.data instanceof Blob) {
+      let arrayBuffer;
+      let fileReader = new FileReader();
+      fileReader.onload = function () {
+        this.processFrame(this.result);
+      };
+      fileReader.readAsArrayBuffer(e.data);
+
+    // Parse String
+    } else if (typeof(e.data) === 'string' || e.data instanceof String) {
+      let strs = e.data.split(",");
+      let arr = strs.map( str => {
+        let result = parseInt(str);
+        if (result === NaN || result > 255) {
+          throw new Error("Could not parse message -- invalid string representation of data");
+        }
+        return result;
+      });
+      this.processFrame(arr);
+
+    // Parse ArrayBuffer
+    } else if (e.data instanceof ArrayBuffer) {
+      this.processFrame(e.data);
+
+    // Other message types are not supported and will be dropped
+    } else {
+      throw new Error ("Could not parse message -- unsupported message type \"" + typeof e.data + "\":", e.data);
+    }
+  }
 
   /**
-   * TODO
+   * Open a WebSocket connection to the endpoint address
    */
-  this.deactivated = null;
+  open() {
+    if (this.webSocket != null) {
+      this.webSocket.onopen = null;
+      this.webSocket.onclose = null;
+      this.webSocket.onmessage = null;
+    }
+
+    this.webSocket = new window.WebSocket(this.address, ["WSNetMQ"]);
+    this.webSocket.binaryType = "arraybuffer";
+    this.connectionState = ConnectionState.CONNECTING;
+
+    this.webSocket.onopen = this.onopen;
+    this.webSocket.onclose = this.onclose;
+    this.webSocket.onmessage = this.onmessage;
+
+    this.connectionRetries++;
+  }
 
   /**
-   * TODO
+   * Process a message frame, adding the payload as an ArrayBuffer to its list of frames
+   *
+   * @param {ArrayBuffer} frame
    */
-  this.onMessage = null;
+  processFrame(frame) {
+    const view = new Uint8Array(frame);
+    const more = view[0];
+    const payload = new Uint8Array(view.subarray(1));
+    
+    if (this.incomingMessage == null) {
+      this.incomingMessage = new Message();
+    }
 
-  /**
-   * TODO
-   */
-  this.getIsActive = function() {
-    return state == ActiveState;
-  };
+    // Add buffer to the incoming message, removing the MORE byte
+    this.incomingMessage.addBuffer(payload);
+    
+    // last message
+    if (more == 0) {
+      if (this.onMessage != null) {
+        this.onMessage(this, this.incomingMessage);
+      }
+
+      this.incomingMessage = null;
+    }
+  }
 
   /**
    * Write message to wire
@@ -164,189 +186,214 @@ function Endpoint(address) {
    * A MORE byte is prepended to each message to indicate whether there are additional
    * frames coming over the wire.
    *
-   * @param {JSMQ.Message} message - Message to write to wire
+   * @param {Message} message - Message to write to wire
    */
-  this.write = function (message) {
-    var messageSize = message.getSize();
+  write(message) {
+    const messageSize = message.getSize();
 
-    for (var j = 0; j < messageSize; j++) {
-      var frame = message.getFrame(j);
+    for (let j = 0; j < messageSize; j++) {
+      const frame = message.getBuffer(j);
 
-      var data = new Uint8Array(frame.byteLength + 1);
-      data[0] = j == messageSize - 1 ? 0 : 1; // set the MORE byte
+
+      let data = new Uint8Array(frame.byteLength + 1);
+      let more = j == messageSize - 1 ? 0 : 1;
+      data[0] = more;  // set the MORE byte
       data.set(new Uint8Array(frame), 1);
 
-      webSocket.send(data);
+      this.webSocket.send(data);
     }
-  };
+  }
 }
 
 /**
  * Class acting as Load Balancer
  */
-function LoadBalancer() {
-  var that = this;
-  var current = 0;
-  var endpoints = [];
-  var isActive = false;
-  this.writeActivated = null;
+class LoadBalancer {
+  constructor () {
+    this.current = 0;
+    this.endpoints = [];
+    this.isActive = false;
+    this.writeActivated = null;
 
+    this.attach = this.attach.bind(this);
+    this.getHasOut = this.getHasOut.bind(this);
+    this.send = this.send.bind(this);
+    this.terminated = this.terminated.bind(this);
+  }
   /**
    * Attach: add an endpoint to list of endpoints
-   * @param {JSMQ.Endpoint} endpoint - The endpoint to attach to
+   * @param {Endpoint} endpoint - The endpoint to attach
    */
-  this.attach = function(endpoint) {
-    endpoints.push(endpoint);
+  attach(endpoint) {
+    this.endpoints.push(endpoint);
 
-    if (!isActive) {
-      isActive = true;
+    if (!this.isActive) {
+      this.isActive = true;
 
-      if (that.writeActivated != null)
-      that.writeActivated();
+      if (this.writeActivated != null) {
+        this.writeActivated();
+      }
     }
-  };
-
-  /**
-   * Terminate: remove an endpoint from list of endpoints
-   * @param {JSMQ.Endpoint} endpoint
-   */
-  this.terminated = function(endpoint) {
-    var index = endpoints.indexOf(endpoint);
-
-    if (current == endpoints.length - 1) {
-      current = 0;
-    }
-
-    endpoints.splice(index, 1);
-  };
-
-  /**
-   * Send message over current the endpoint
-   * @param {JSMQ.Message} message - The message to send
-   * @return {Boolean} - Success
-   */
-  this.send = function (message) {
-    if (endpoints.length == 0) {
-      isActive = false;
-      console.log("Failed to send message - no valid endpoints");
-      return false;
-    }
-
-    endpoints[current].write(message);
-    current = (current + 1) % endpoints.length;
-
-    return true;
-  };
+  }
 
   /**
    * TODO
    */
-  this.getHasOut = function () {
-    if (inprogress) {
+  getHasOut() {
+    if (this.inprogress) {
       return true;
     }
 
-    return endpoints.length > 0;
-  };
+    return this.endpoints.length > 0;
+  }
+
+  /**
+   * Send message over current the endpoint
+   * @param {Message} message - The message to send
+   * @return {Boolean} - Success
+   */
+  send(message) {
+    if (this.endpoints.length == 0) {
+      this.isActive = false;
+      throw new Error ("Failed to send message - no valid endpoints");
+      return false;
+    }
+
+    this.endpoints[this.current].write(message);
+    this.current = (this.current + 1) % this.endpoints.length;
+
+    return true;
+  }
+
+  /**
+   * Terminate: remove an endpoint from list of endpoints
+   * @param {Endpoint} endpoint
+   */
+  terminated(endpoint) {
+    const index = this.endpoints.indexOf(endpoint);
+
+    if (this.current == this.endpoints.length - 1) {
+      this.current = 0;
+    }
+
+    this.endpoints.splice(index, 1);
+  }
 }
 
 /**
  * ZWSSocket
  */
-function ZWSSocket(xattachEndpoint, xendpointTerminated, xhasOut, xsend, xonMessage) {
-  this.onMessage = null;
-  this.sendReady = null;
+export class ZWSSocket {
+  constructor () {
+    this.endpoints = [];
+    this.onMessage = null;
 
-  var endpoints = [];
-
-  function onEndpointActivated(endpoint) {
-    xattachEndpoint(endpoint);
-  }
-
-  function onEndpointDeactivated(endpoint) {
-    xendpointTerminated(endpoint);
-  }
-
-  this.connect = function (address) {
-    var endpoint = new Endpoint(address);
-    endpoint.activated = onEndpointActivated;
-    endpoint.deactivated = onEndpointDeactivated;
-    endpoint.onMessage = xonMessage;
-    endpoints.push(endpoint);
+    this.connect = this.connect.bind(this);
+    this.disconnect = this.disconnect.bind(this);
+    this.getHasOut = this.getHasOut.bind(this);
+    this.onEndpointActivated = this.onEndpointActivated.bind(this);
+    this.onEndpointDeactivated = this.onEndpointDeactivated.bind(this);
+    this.send = this.send.bind(this);
   };
-
-  this.disconnect = function(address) {
-    // UNIMPLEMENTED
-    console.log("Failed to disconnect - disconnect UNIMPLEMENTED");
+  
+  connect(address) {
+    let endpoint = new Endpoint(address);
+    endpoint.activated = this.onEndpointActivated;
+    endpoint.deactivated = this.onEndpointDeactivated;
+    endpoint.onMessage = this.xonMessage;
+    this.endpoints.push(endpoint);
   };
+  
+  disconnect(address, code = undefined, reason = undefined) {
+    const endpoint = this.endpoints.find(endpoint => {
+      return (endpoint.address === address);
+    });
 
-  this.send = function (message) {
-    return xsend(message);
+    if (endpoint !== undefined) {
+      endpoint.close(code, reason);
+      this.endpoints.splice(this.endpoints.indexOf(endpoint), 1);
+    } else {
+      throw new Error("Failed to disconnect from address \""
+        + address + "\" - endpoint not connected to this address");
+    }
   };
-
-  this.getHasOut = function() {
+  
+  getHasOut() {
     return xhasOut();
   };
+
+  onEndpointActivated(endpoint) {
+    this.xattachEndpoint(endpoint);
+  }
+
+  onEndpointDeactivated(endpoint) {
+    this.xendpointTerminated(endpoint);
+  }
+
+  send(message) {
+    return this.xsend(message);
+  };
 }
-
-// JSMQ namespace
-function JSMQ() {}
-
 
 /**
  * Class representing a ZeroMQ DEALER type socket
  */
-JSMQ.Dealer = function() {
-  var lb = new LoadBalancer();
-  var socket = new ZWSSocket(xattachEndpoint, xendpointTerminated, xhasOut, xsend, xonMessage);
+export class Dealer extends ZWSSocket {
+  constructor() {
+    super();
+    this.lb = new LoadBalancer();
+    this.lb.writeActivated = function() {
+      if (this.sendReady != null) {
+        this.sendReady();
+      }
+    }.bind(this);
 
-  lb.writeActivated = function() {
-    if (socket.sendReady != null) {
-      socket.sendReady(socket);
-    }
+    this.xattachEndpoint = this.xattachEndpoint.bind(this);
+    this.xendpointTerminated = this.xendpointTerminated.bind(this);
+    this.xhasOut = this.xhasOut.bind(this);
+    this.xonMessage = this.xonMessage.bind(this);
+    this.xsend = this.xsend.bind(this);
   };
 
-  function xattachEndpoint(endpoint) {
-    lb.attach(endpoint);
+  xattachEndpoint(endpoint) {
+    this.lb.attach(endpoint);
   }
 
-  function xendpointTerminated(endpoint) {
-    lb.terminated(endpoint);
+  xendpointTerminated(endpoint) {
+    this.lb.terminated(endpoint);
   }
 
-  function xhasOut() {
-    return lb.getHasOut();
+  xhasOut() {
+    return this.lb.getHasOut();
   }
-
-  function xsend(message) {
-    return lb.send(message);
-  }
-
-  function xonMessage(endpoint, message) {
-    if (socket.onMessage != null) {
-      socket.onMessage(message);
+  
+  xonMessage(endpoint, message) {
+    if (this.onMessage != null) {
+      this.onMessage(message);
     }
   }
-
-  return socket;
+  
+  xsend(message) {
+    return this.lb.send(message);
+  }
 }
 
 /**
  * Class representing a ZeroMQ SUBSCRIBER type socket
  */
-JSMQ.Subscriber = function () {
-  var socket = new ZWSSocket(xattachEndpoint, xendpointTerminated, xhasOut, xsend, xonMessage);;
-
-  var endpoints = [];
-  var subscriptions = [];
-
-  var isActive = false;
+export class Subscriber extends ZWSSocket {
+  constructor() {
+    super();
+    this.endpoints = [];
+    this.isActive = false;
+    this.subscriptions = [];
+  }
 
   /**
    * TODO
    * @param {*} subscription
    */
-  socket.subscribe = function (subscription) {
+  subscribe(subscription) {
     if (subscription instanceof Uint8Array) {
       // continue
     }
@@ -357,20 +404,20 @@ JSMQ.Subscriber = function () {
     }
 
     // TODO: check if the subscription already exists
-    subscriptions.push(subscription)
+    this.subscriptions.push(subscription);
 
-    var message = createSubscriptionMessage(subscription, true);
+    const message = createSubscriptionMessageReceived(subscription, true);
 
-    for (var i = 0; i < endpoints.length; i++) {
-      endpoints[i].write(message);
+    for (var i = 0; i < this.endpoints.length; i++) {
+      this.endpoints[i].write(message);
     }
-  }
+  };
 
   /**
    * TODO
    * @param {*} subscription
    */
-  socket.unsubscribe = function (subscription) {
+  unsubscribe(subscription) {
     if (subscription instanceof Uint8Array) {
       // continue
     }
@@ -383,51 +430,52 @@ JSMQ.Subscriber = function () {
 
     for (var j = 0; j < subscriptions.length; j++) {
 
-      if (subscriptions[j].length == subscription.length) {
+      if (this.subscriptions[j].length == subscription.length) {
         var equal = true;
 
-        for (var k = 0; k < subscriptions[j].length; k++) {
-          if (subscriptions[j][k] != subscription[k]) {
+        for (var k = 0; k < this.subscriptions[j].length; k++) {
+          if (this.subscriptions[j][k] != subscription[k]) {
             equal = false;
             break;
           }
         }
 
         if (equal) {
-          subscriptions.splice(j, 1);
+          this.subscriptions.splice(j, 1);
           break;
         }
       }
     }
 
-    var message = createSubscriptionMessage(subscription, false);
+    var message = createSubscriptionMessageReceived(subscription, false);
 
-    for (var i = 0; i < endpoints.length; i++) {
-      endpoints[i].write(message);
+    for (var i = 0; i < this.endpoints.length; i++) {
+      this.endpoints[i].write(message);
     }
-  }
+  };
+  
 
   /**
    * TODO
    * @param {*} subscription
    * @param {*} subscribe
    */
-  function createSubscriptionMessage(subscription, subscribe) {
+  createSubscriptionMessageReceived(subscription, subscribe) {
     var frame = new Uint8Array(subscription.length + 1);
     frame[0] = subscribe ? 1 : 0;
     frame.set(subscription, 1);
 
-    var message = new JSMQ.Message();
+    var message = new Message();
     message.addBuffer(frame);
 
     return message;
   }
 
-  function xattachEndpoint(endpoint) {
-    endpoints.push(endpoint);
+  xattachEndpoint(endpoint) {
+    this.endpoints.push(endpoint);
 
     for (var i = 0; i < subscriptions.length; i++) {
-      var message = createSubscriptionMessage(subscriptions[i], true);
+      var message = createSubscriptionMessageReceived(subscriptions[i], true);
 
       endpoint.write(message);
     }
@@ -435,274 +483,298 @@ JSMQ.Subscriber = function () {
     if (!isActive) {
       isActive = true;
 
-      if (socket.sendReady != null) {
-        socket.sendReady(socket);
+      if (this.sendReady != null) {
+        this.sendReady();
       }
     }
   }
 
-  function xendpointTerminated(endpoint) {
+  xendpointTerminated(endpoint) {
     var index = endpoints.indexOf(endpoint);
     endpoints.splice(index, 1);
   }
 
-  function xhasOut() {
+  xhasOut() {
     return false;
   }
 
-  function xsend(message, more) {
-    throw new "Send not supported on sub socket";
+  xsend(message, more) {
+    throw new Error("Failed to send message - send not supported on SUB type socket");
   }
 
-  function xonMessage(endpoint, message) {
-    if (socket.onMessage != null) {
-      socket.onMessage(message);
+  xonMessage(endpoint, message) {
+    if (this.onMessage != null) {
+      this.onMessage(message);
     }
   }
-
-  return socket;
 }
 
 /**
  * Class representing a ZeroMQ message
  */
-JSMQ.Message = function () {
-  this.frames = [];  // Array of ArrayBuffers. Each ArrayBuffer represents a frame.
+export class Message {
+  constructor() {
+    this.frames = [];  // Array of ArrayBuffers. Each ArrayBuffer represents a frame.
+
+    this.getSize = this.getSize.bind(this);
+
+    this.addBuffer = this.addBuffer.bind(this);
+    this.addFloat = this.addFloat.bind(this);
+    this.addInt = this.addInt.bind(this);
+    this.addString = this.addString.bind(this);
+    this.addUint = this.addUint.bind(this);
+
+    this.getBuffer = this.getBuffer.bind(this);
+    this.getFloat = this.getFloat.bind(this);
+    this.getInt = this.getInt.bind(this);
+    this.getString = this.getString.bind(this);
+    this.getUint = this.getUint.bind(this);
+
+    this.insertBuffer = this.insertBuffer.bind(this);
+    this.insertFloat = this.insertFloat.bind(this);
+    this.insertInt = this.insertInt.bind(this);
+    this.insertString = this.insertString.bind(this);
+    this.insertUint = this.insertUint.bind(this);
+
+    this.popBuffer = this.popBuffer.bind(this);
+    this.popFloat = this.popFloat.bind(this);
+    this.popBuffer = this.popBuffer.bind(this);
+    this.popInt = this.popInt.bind(this);
+    this.popString = this.popString.bind(this);
+    this.popUint = this.popUint.bind(this);
+  }
 
   /**
    * Get size in number of frames
    * @return {number} - number of frames
    */
-  this.getSize = function() {
+  getSize() {
     return this.frames.length;
   }
 
   /**
    * Append a buffer to the end of the message
    * @param {ArrayBuffer} buffer - Buffer of data to append
+   * @return {Message} - Updated message
    */
-  this.addBuffer = function (data) {
+  addBuffer(data) {
     if (data instanceof ArrayBuffer) {
       this.frames.push(data);
 
     } else if (data instanceof Uint8Array) {
       this.frames.push(data.buffer);
-
+      
     } else {
-      throw ("Failed to add buffer to message - unknown buffer type \"" + typeof buffer + "\"");
+      throw new Error("Failed to add buffer to message - unknown buffer type \"" + typeof buffer + "\"");
     }
+    return this;
   }
 
   /**
-   * Append a double to the end of the message
-   * @param {number} number - Double to append
+   * Append a float to the end of the message
+   * @param {number} number - Float to append
+   * @param {number} size - Size in bytes of float (default: 8)
+   * @return {Message} - Updated message
    */
-  this.addDouble = function (number) {
-    this.addBuffer(NumberUtility.doubleToByteArray(number));
+  addFloat(number, size = 8) {
+    return this.addBuffer(NumberUtility.floatToBytes(number, size));
   }
 
   /**
-   * Append an int to the end of the message
+   * Append a signed integer to the end of the message
    * @param {number} number - Int to append
+   * @param {number} size - Size in bytes of integer (default: 4)
+   * @return {Message} - Updated message
    */
-  this.addInt16 = function (number) {
-    this.addBuffer(NumberUtility.int16ToByteArray(number));
+  addInt(number, size = 4) {
+    return this.addBuffer(NumberUtility.intToBytes(number, size));
   }
 
-  /**
-   * Append an int to the end of the message
-   * @param {number} number - Int to append
-   */
-  this.addInt32 = function (number) {
-    this.addBuffer(NumberUtility.int32ToByteArray(number));
-  }
-
-  /**
-   * Append a long int to the end of the message
-   * @param {number} number - Uint16 to append
-   */
-  this.addUint16 = function (number) {
-    this.addBuffer(NumberUtility.int16ToByteArray(number));
-  }
-
-  /**
-   * Append a long int to the end of the message
-   * @param {number} number - Uint32 to append
-   */
-  this.addUint32 = function (number) {
-    this.addBuffer(NumberUtility.int32ToByteArray(number));
-  }
-
-  /**
+    /**
    * Append a string to the end of the message
    * @param {string} str - String to append
+   * @return {Message} - Updated message
    */
-  this.addString = function(str) {
+  addString(str) {
     str = String(str);
 
-    // A byte is saved for the MORE byte
-    var arr = new Uint8Array(str.length);
+    let arr = new Uint8Array(str.length);
 
     StringUtility.StringToUint8Array(str, arr);
-    this.addBuffer(arr);
+    return this.addBuffer(arr);
+  }
+
+  /**
+   * Append an unsigned integer to the end of the message
+   * @param {number} number - Int to append
+   * @param {number} size - Size in bytes of integer (default: 4)
+   * @return {Message} - Updated message
+   */
+  addUint(number, size = 4) {
+    return this.addBuffer(NumberUtility.uintToBytes(number, size));
   }
 
   /**
    * Get the frame at the specified location
-   * @param {number} i - Frame to retrieve
+   * @param {number} i - Frame location
    * @return {ArrayBuffer} - Frame payload
    */
-  this.getBuffer = function(i) {
-    // Remove the prepended MORE byte from the payload
-    return this.frames[i].slice(1);
+  getBuffer(frame) {
+    return this.frames[frame];
   }
 
   /**
-   * Get the frame at the specified location
-   * @param {number} i - Frame to retrieve
-   * @return {ArrayBuffer} - Frame payload
+   * Get a float at the specified frame location
+   * @param {number} i - Index of frame to fetch
+   * @param {number} size - Size in bytes of float (default: 8)
    */
-  this.getFrame = function(i) {
-    return this.frames[i];
+  getFloat(i, size = 8) {
+    return NumberUtility.bytesToFloat(this.getBuffer(i), size);
   }
 
   /**
-   * Get a double at the specified frame location
-   * @param {*} i
+   * Get a signed integer at the specified frame location
+   * @param {number} i - Index of frame to fetch
+   * @param {number} size - Size in bytes of integer (default: 4)
    */
-  this.getDouble = function (i) {
-    var buf = this.getBuffer(i);
-
-    return NumberUtility.byteArrayToDouble(buf);
-  }
-
-  /**
-   * Get an int at the specified frame location
-   * @param {*} i
-   */
-  this.getInt16 = function (i) {
-    var buf = this.getBuffer(i);
-
-    return NumberUtility.byteArrayToInt16(buf);
-  }
-
-  /**
-   * Get an int at the specified frame location
-   * @param {*} i
-   */
-  this.getInt32 = function (i) {
-    var buf = this.getBuffer(i);
-
-    return NumberUtility.byteArrayToInt32(buf);
-  }
-
-  /**
-   * Get a long int at the specified frame location
-   * @param {*} i
-   */
-  this.getUint16 = function (i) {
-    var buf = this.getBuffer(i);
-
-    return NumberUtility.byteArrayToUint16(buf);
-  }
-
-  /**
-   * Get a long int at the specified frame location
-   * @param {*} i
-   */
-  this.getUint32 = function (i) {
-    var buf = this.getBuffer(i);
-
-    return NumberUtility.byteArrayToUint32(buf);
+  getInt(i, size = 4) {
+    return NumberUtility.bytesToInt(this.getBuffer(i), size);
   }
 
   /**
    * Get a string at the specified frame location
-   * @param {*} i
+   * @param {number} i - Index of frame to fetch
    */
-  this.getString = function (i) {
-    var frame = this.getBuffer(i);
-    return StringUtility.Uint8ArrayToString(new Uint8Array(frame));
+  getString(i) {
+    return StringUtility.Uint8ArrayToString(new Uint8Array(this.getBuffer(i)));
   }
 
+  /**
+   * Get a unsigned integer at the specified frame location
+   * @param {number} i - Index of frame to fetch
+   * @param {number} size - Size in bytes of integer (default: 4)
+   */
+  getUint(i, size = 4) {
+    return NumberUtility.bytesToUint(this.getBuffer(i), size);
+  }
+  
+  /**
+   * Insert a buffer at frame index i of the message
+   * @param {number} i - Insert index
+   * @param {*} buffer - Buffer to insert
+   * @return {Message} - Updated message
+   */
+  insertBuffer(i, data) {
+    if (i === undefined) {
+      i = 0;
+    }
+
+    if (data instanceof ArrayBuffer) {
+      this.frames.splice(i, 0, data);
+
+    } else if (data instanceof Uint8Array) {
+      this.frames.splice(i, 0, data.buffer);
+      
+    } else {
+      throw new Error("Failed to insert buffer into message - unknown buffer type \"" + typeof buffer + "\"");
+    }
+    return this;
+  }
+
+  /**
+   * Insert a float at frame index i of the message
+   * @param {number} i - Insert index
+   * @param {number} number - Number to insert
+   * @return {Message} - Updated message
+   */
+  insertFloat(i, number, size = 8) {
+    return this.insertBuffer(i, NumberUtility.floatToBytes(number, size));
+  }
+
+  /**
+   * Insert a signed integer at frame index i of the message
+   * @param {number} i - Insert index
+   * @param {number} number - Number to insert
+   * @param {number} size - Size in bytes of integer (default: 4)
+   * @return {Message} - Updated message
+   */
+  insertInt(i, number, size = 4) {
+    return this.insertBuffer(i, NumberUtility.int16ToBytes(number, size));
+  }
+
+  /**
+   * Insert a string at frame index i of the message
+   * @param {number} i - Insert index
+   * @param {string} str - String to insert
+   * @return {Message} - Updated message
+   */
+  insertString(i, str) {
+    str = String(str);
+    var arr = new Uint8Array(str.length);
+    StringUtility.StringToUint8Array(str, arr);
+
+    return this.insertBuffer(i, arr.buffer);
+  }
+
+  /**
+   * Insert an unsigned integer at frame index i of the message
+   * @param {number} i - Insert index
+   * @param {number} number - Number to insert
+   * @param {number} size - Size in bytes of integer (default: 4)
+   * @return {Message} - Updated message
+   */
+  insertUint(i, number, size = 4) {
+    return this.insertBuffer(i, NumberUtility.uintToBytes(number, size));
+  }
+  
   /**
    * Pop the first frame of the message, as an ArrayBuffer
    * @return {ArrayBuffer} - Frame payload
    */
-  this.popFrame = function() {
+  popBuffer() {
     var frame = this.frames[0];
     this.frames.splice(0, 1);
 
-    // Remove the prepended "message continued" byte from the payload
-    return frame.slice(1);
+    return frame;
   }
-
+  
   /**
-   * Pop the first frame of the message, as a double
-   * @return {double}
+   * Pop the first frame of the message, as a float
+   * @param {number} size - Size in bytes of float (default: 8)
+   * @return {float}
    */
-  this.popDouble = function() {
-    var frame = this.popFrame();
-    return NumberUtility.byteArrayToDouble(frame);
+  popFloat(size = 8) {
+    const frame = this.popBuffer();
+    return NumberUtility.bytesToFloat(frame, size);
   }
 
   /**
-   * Pop the first frame of the message, as an int
+   * Pop the first frame of the message, as an integer
+   * @param {number} size - Size in bytes of integer (default: 4)
    * @return {number}
    */
-  this.popInt16 = function() {
-    var frame = this.popFrame();
-    return NumberUtility.byteArrayToInt16(frame);
-  }
-
-  /**
-   * Pop the first frame of the message, as an int
-   * @return {number}
-   */
-  this.popInt32 = function() {
-    var frame = this.popFrame();
-    return NumberUtility.byteArrayToInt32(frame);
+  popInt(size = 4) {
+    const frame = this.popBuffer();
+    return NumberUtility.bytesToInt(frame, size);
   }
 
   /**
    * Pop the first frame of the message, as a string
    * @return {string}
    */
-  this.popString = function() {
-    var frame = this.popFrame();
+  popString() {
+    const frame = this.popBuffer();
     return StringUtility.Uint8ArrayToString(new Uint8Array(frame));
   }
 
   /**
-   * Pop the first frame of the message, as a long int
+   * Pop the first frame of the message, as an unsigned integer
+   * @param {number} size - Size in bytes of integer (default: 4)
    * @return {number}
    */
-  this.popUint16 = function() {
-    var frame = this.popFrame();
-    return NumberUtility.byteArrayToUint16(frame);
-  }
-
-  /**
-   * Pop the first frame of the message, as a long int
-   * @return {number}
-   */
-  this.popUint32 = function() {
-    var frame = this.popFrame();
-    return NumberUtility.byteArrayToUint32(frame);
-  }
-
-  /**
-   * Insert a string at the beginning of the message
-   * @param {string} str
-   */
-  this.prependString = function(str) {
-    str = String(str);
-
-    var arr = new Uint8Array(str.length);
-
-    StringUtility.StringToUint8Array(str, arr);
-
-    this.frames.splice(0, 0, arr.buffer);
+  popUint(size = 4) {
+    const frame = this.popBuffer();
+    return NumberUtility.bytesToUint(frame, size);
   }
 }
 
@@ -711,66 +783,91 @@ function NumberUtility() {}
 
 NumberUtility.littleEndian = true;
 
-NumberUtility.byteArrayToDouble = function (arr) {
-  view = new DataView(arr);
-  return view.getFloat64(0, NumberUtility.littleEndian);
+NumberUtility.bytesToFloat = function (arr, size) {
+  let view = new DataView(arr);
+
+  if (size == 4) {
+    return view.getFloat32(0, NumberUtility.littleEndian);
+  } else if (size == 8) {
+    return view.getFloat64(0, NumberUtility.littleEndian);
+  } else {
+    throw new Error("Failed to convert bytes to int - invalid integer size (size of " + size + ")");
+  }
 }
 
-NumberUtility.byteArrayToInt16 = function (arr) {
-  view = new DataView(arr);
-  return view.getInt16(0, NumberUtility.littleEndian);
+NumberUtility.bytesToInt = function (arr, size) {
+  let view = new DataView(arr);
+
+  if (size == 1) {
+    return view.getInt8(0, NumberUtility.littleEndian);
+  } else if (size == 2) {
+    return view.getInt16(0, NumberUtility.littleEndian);
+  } else if (size == 4) {
+    return view.getInt32(0, NumberUtility.littleEndian);
+  } else {
+    throw new Error("Failed to convert bytes to int - invalid integer size (size of " + size + ")");
+  }
 }
 
-NumberUtility.byteArrayToInt32 = function (arr) {
-  view = new DataView(arr);
-  return view.getInt32(0, NumberUtility.littleEndian);
+NumberUtility.bytesToUint = function (arr, size) {
+  let view = new DataView(arr);
+
+  if (size == 1) {
+    return view.getUint8(0, NumberUtility.littleEndian);
+  } else if (size == 2) {
+    return view.getUint16(0, NumberUtility.littleEndian);
+  } else if (size == 4) {
+    return view.getUint32(0, NumberUtility.littleEndian);
+  } else {
+    throw new Error("Failed to convert bytes to int - invalid integer size (size of " + size + ")");
+  }
 }
 
-NumberUtility.byteArrayToUint16 = function (arr) {
-  view = new DataView(arr);
-  return view.getUint16(0, NumberUtility.littleEndian);
-}
+NumberUtility.floatToBytes = function (num, size) {
+  let arr = new ArrayBuffer(8);
+  let view = new DataView(arr);
 
-NumberUtility.byteArrayToUint32 = function (arr) {
-  view = new DataView(arr);
-  return view.getUint32(0, NumberUtility.littleEndian);
-}
-
-NumberUtility.doubleToByteArray = function (num) {
-  arr = new ArrayBuffer(8);
-  view = new DataView(arr);
-  view.setFloat64(0, num, NumberUtility.littleEndian);
+  if (size == 4) {
+    view.setFloat32(0, num, NumberUtility.littleEndian);
+  } else if (size == 8) {
+    view.setFloat64(0, num, NumberUtility.littleEndian);
+  } else {
+    throw new Error("Failed to convert bytes to int - invalid integer size (size of " + size + ")");
+  }
   return arr;
 }
 
-NumberUtility.int16ToByteArray = function (num) {
-  arr = new ArrayBuffer(2);
-  view = new DataView(arr);
-  view.setInt16(0, num, NumberUtility.littleEndian);
+NumberUtility.intToBytes = function (num, size) {
+  let arr = new ArrayBuffer(size);
+  let view = new DataView(arr);
+
+  if (size == 1) {
+    view.setInt8(0, num, NumberUtility.littleEndian);
+  } else if (size == 2) {
+    view.setInt16(0, num, NumberUtility.littleEndian);
+  } else if (size == 4) {
+    view.setInt32(0, num, NumberUtility.littleEndian);
+  } else {
+    throw new Error("Failed to convert int to bytes - invalid integer size (size of " + size + ")");
+  }
   return arr;
 }
 
-NumberUtility.int32ToByteArray = function (num) {
-  arr = new ArrayBuffer(4);
-  view = new DataView(arr);
-  view.setInt32(0, num, NumberUtility.littleEndian);
+NumberUtility.uintToBytes = function (num, size) {
+  let arr = new ArrayBuffer(size);
+  let view = new DataView(arr);
+
+  if (size == 1) {
+    view.setUint8(0, num, NumberUtility.littleEndian);
+  } else if (size == 2) {
+    view.setUint16(0, num, NumberUtility.littleEndian);
+  } else if (size == 4) {
+    view.setUint32(0, num, NumberUtility.littleEndian);
+  } else {
+    throw new Error("Failed to convert int to bytes - invalid integer size (size of " + size + ")");
+  }
   return arr;
 }
-
-NumberUtility.uInt16ToByteArray = function (num) {
-  arr = new ArrayBuffer(2);
-  view = new DataView(arr);
-  view.setUint16(0, num, NumberUtility.littleEndian);
-  return arr;
-}
-
-NumberUtility.uInt32ToByteArray = function (num) {
-  arr = new ArrayBuffer(4);
-  view = new DataView(arr);
-  view.setUint32(0, num, NumberUtility.littleEndian);
-  return arr;
-}
-
 
 // String Utility
 function StringUtility() {}
