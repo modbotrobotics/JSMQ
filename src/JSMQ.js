@@ -1,5 +1,5 @@
 /**
- * WebSocket connection state
+ * Socket connection state
  */
 const ConnectionState = Object.freeze({
   CONNECTING:             0,
@@ -9,61 +9,67 @@ const ConnectionState = Object.freeze({
 });
 
 /**
- * Class representing a WebSocket endpoint
+ * Class representing a socket endpoint
  * @param {string} address - The endpoint address (ex: "ws://127.0.0.1:15798")
  */
 class Endpoint {
   constructor(address) {
     this.address = address;
-    this.incomingMessage = null;
-    this.connectionRetries = 0;
-    this.connectionState = ConnectionState.CLOSED;
-    this.webSocket = null;
-    
+
+    this._connectionRetries = 0;
+    this._connectionState = ConnectionState.CLOSED;
+    this._incomingMessage = null;
+    this._webSocket = null;
+
     this.activated = null;
     this.deactivated = null;
-    
+
+    // Bind
+    this._onMessage = this._onMessage.bind(this);
+    this._processFrame = this._processFrame.bind(this);
+    this._webSocketOnClose = this._webSocketOnClose.bind(this);
+    this._webSocketOnMessage = this._webSocketOnMessage.bind(this);
+    this._webSocketOnOpen = this._webSocketOnOpen.bind(this);
+
     this.close = this.close.bind(this);
     this.isOpen = this.isOpen.bind(this);
-    this.onclose = this.onclose.bind(this);
-    this.onmessage = this.onmessage.bind(this);
-    this.onopen = this.onopen.bind(this);
     this.open = this.open.bind(this);
-    this.processFrame = this.processFrame.bind(this);
     this.write = this.write.bind(this);
-    
+
     this.open();
   }
 
   /**
-   * Close an open WebSocket connection or connection attempt
-   * @param {number} code - A numeric value status code explaining why the connection is being closed
-   * @param {string} reason - A string explaining why the connection is being clsoed
+   * TODO
    */
-  close(code = undefined, reason = undefined) {
-    if (code === undefined) {
-      code = CloseEvent.CLOSE_NO_STATUS;  // WebSocket CloseEvent code 1005 "No Status Recvd"
+  _onMessage() {
+    // Call bound callback
+    if (this.onMessage != null) {
+      this.onMessage(this, this._incomingMessage);
     }
-    this.webSocket.close(code, reason);
-  }
-
-  isOpen() {
-    return (this.connectionState === ConnectionState.OPEN);
+    this._incomingMessage = null;
   }
 
   /**
-   * Callback on WebSocket connection opened
+   * Process a message frame, adding the payload as an ArrayBuffer to its list of frames
    *
-   * On open, perform activated actions, set endpoint state to open.
-   *
-   * @param {*} e - event (unused)
+   * @param {ArrayBuffer} frame
    */
-  onopen(e) {
-    this.connectionRetries = 0;
+  _processFrame(frame) {
+    const view = new Uint8Array(frame);
+    const more = view[0];
+    const payload = new Uint8Array(view.subarray(1));
 
-    this.connectionState = ConnectionState.OPEN;
-    if (this.activated != null) {
-      this.activated(this);
+    if (this._incomingMessage == null) {
+      this._incomingMessage = new Message();
+    }
+
+    // Add buffer to the incoming message, removing the MORE byte
+    this._incomingMessage.addBuffer(payload);
+
+    // Last message frame, ZeroMQ message is complete
+    if (more == 0) {
+      this._onMessage();
     }
   }
 
@@ -75,15 +81,15 @@ class Endpoint {
    *
    * @param {*} e - event (unused)
    */
-  onclose(e) {
-    let previousState = this.connectionState;
-    this.connectionState = ConnectionState.CLOSED;
+  _webSocketOnClose(e) {
+    let previousState = this._connectionState;
+    this._connectionState = ConnectionState.CLOSED;
 
     if (previousState == ConnectionState.OPEN && this.deactivated != null) {
       this.deactivated(this);
     }
 
-    if (this.connectionRetries > 10) {
+    if (this._connectionRetries > 10) {
       window.setTimeout(this.open, 2000);
     } else {
       this.open();
@@ -98,13 +104,12 @@ class Endpoint {
    *
    * @param {*} e - The message event; May contain a Blob or ArrayBuffer
    */
-  onmessage(e) {
-    // Parse blobs
+  _webSocketOnMessage(e) {
+    // Parse Blob
     if (e.data instanceof Blob) {
-      let arrayBuffer;
       let fileReader = new FileReader();
       fileReader.onload = function () {
-        this.processFrame(this.result);
+        this._processFrame(this.result);
       };
       fileReader.readAsArrayBuffer(e.data);
 
@@ -114,68 +119,76 @@ class Endpoint {
       let arr = strs.map( str => {
         let result = parseInt(str);
         if (result === NaN || result > 255) {
-          throw new Error("Could not parse message -- invalid string representation of data");
+          console.log("Failed to parse message frame -- invalid string representation of data");
         }
         return result;
       });
-      this.processFrame(arr);
+      this._processFrame(arr);
 
     // Parse ArrayBuffer
     } else if (e.data instanceof ArrayBuffer) {
-      this.processFrame(e.data);
+      this._processFrame(e.data);
 
     // Other message types are not supported and will be dropped
     } else {
-      throw new Error ("Could not parse message -- unsupported message type \"" + typeof e.data + "\":", e.data);
+      console.log("Failed to parse message frame -- unsupported message type \"" + typeof e.data + "\"");
     }
+  }
+
+  /**
+   * Callback on WebSocket connection opened
+   *
+   * On open, perform activated actions, set endpoint state to open.
+   *
+   * @param {*} e - event (unused)
+   */
+  _webSocketOnOpen(e) {
+    this._connectionRetries = 0;
+
+    this._connectionState = ConnectionState.OPEN;
+    if (this.activated != null) {
+      this.activated(this);
+    }
+  }
+
+  /**
+   * Close an open WebSocket connection or connection attempt
+   * @param {number} code - A numeric value status code explaining why the connection is being closed
+   * @param {string} reason - A string explaining why the connection is being clsoed
+   */
+  close(code = undefined, reason = undefined) {
+    if (code === undefined) {
+      code = CloseEvent.CLOSE_NO_STATUS;  // WebSocket CloseEvent code 1005 "No Status Recvd"
+    }
+    this._webSocket.close(code, reason);
+  }
+
+  /**
+   * TODO
+   */
+  isOpen() {
+    return (this._connectionState === ConnectionState.OPEN);
   }
 
   /**
    * Open a WebSocket connection to the endpoint address
    */
   open() {
-    if (this.webSocket != null) {
-      this.webSocket.onopen = null;
-      this.webSocket.onclose = null;
-      this.webSocket.onmessage = null;
+    if (this._webSocket != null) {
+      this._webSocket.onopen = null;
+      this._webSocket.onclose = null;
+      this._webSocket.onmessage = null;
     }
 
-    this.webSocket = new window.WebSocket(this.address, ["WSNetMQ"]);
-    this.webSocket.binaryType = "arraybuffer";
-    this.connectionState = ConnectionState.CONNECTING;
+    this._webSocket = new window.WebSocket(this.address, ["WSNetMQ"]);
+    this._webSocket.binaryType = "arraybuffer";
+    this._connectionState = ConnectionState.CONNECTING;
 
-    this.webSocket.onopen = this.onopen;
-    this.webSocket.onclose = this.onclose;
-    this.webSocket.onmessage = this.onmessage;
+    this._webSocket.onopen = this._webSocketOnOpen;
+    this._webSocket.onclose = this._webSocketOnClose;
+    this._webSocket.onmessage = this._webSocketOnMessage;
 
-    this.connectionRetries++;
-  }
-
-  /**
-   * Process a message frame, adding the payload as an ArrayBuffer to its list of frames
-   *
-   * @param {ArrayBuffer} frame
-   */
-  processFrame(frame) {
-    const view = new Uint8Array(frame);
-    const more = view[0];
-    const payload = new Uint8Array(view.subarray(1));
-    
-    if (this.incomingMessage == null) {
-      this.incomingMessage = new Message();
-    }
-
-    // Add buffer to the incoming message, removing the MORE byte
-    this.incomingMessage.addBuffer(payload);
-    
-    // last message
-    if (more == 0) {
-      if (this.onMessage != null) {
-        this.onMessage(this, this.incomingMessage);
-      }
-
-      this.incomingMessage = null;
-    }
+    this._connectionRetries++;
   }
 
   /**
@@ -200,13 +213,14 @@ class Endpoint {
       data[0] = more;  // set the MORE byte
       data.set(new Uint8Array(frame), 1);
 
-      this.webSocket.send(data);
+      this._webSocket.send(data);
     }
   }
 }
 
 /**
- * Class acting as Load Balancer
+ * Load Balancer for DEALER socket.
+ * Each message sent is round-robined among connected peers.
  */
 class LoadBalancer {
   constructor () {
@@ -218,7 +232,7 @@ class LoadBalancer {
     this.attach = this.attach.bind(this);
     this.getHasOut = this.getHasOut.bind(this);
     this.send = this.send.bind(this);
-    this.terminated = this.terminated.bind(this);
+    this.terminate = this.terminate.bind(this);
   }
   /**
    * Attach: add an endpoint to list of endpoints
@@ -238,6 +252,7 @@ class LoadBalancer {
 
   /**
    * TODO
+   * @return {Boolean}
    */
   getHasOut() {
     if (this.inprogress) {
@@ -248,14 +263,15 @@ class LoadBalancer {
   }
 
   /**
-   * Send message over current the endpoint
+   * Send message over the current endpoint
+   * Endpoints are alternated in a round robin fashion.
    * @param {Message} message - The message to send
    * @return {Boolean} - Success
    */
   send(message) {
     if (this.endpoints.length == 0) {
       this.isActive = false;
-      throw new Error ("Failed to send message - no valid endpoints");
+      console.log("Failed to send message - no valid endpoints");
       return false;
     }
 
@@ -269,7 +285,7 @@ class LoadBalancer {
    * Terminate: remove an endpoint from list of endpoints
    * @param {Endpoint} endpoint
    */
-  terminated(endpoint) {
+  terminate(endpoint) {
     const index = this.endpoints.indexOf(endpoint);
 
     if (this.current == this.endpoints.length - 1) {
@@ -288,22 +304,42 @@ export class ZWSSocket {
     this.endpoints = [];
     this.onMessage = null;
 
+    this._onEndpointActivated = this._onEndpointActivated.bind(this);
+    this._onEndpointDeactivated = this._onEndpointDeactivated.bind(this);
     this.connect = this.connect.bind(this);
     this.disconnect = this.disconnect.bind(this);
     this.getHasOut = this.getHasOut.bind(this);
-    this.onEndpointActivated = this.onEndpointActivated.bind(this);
-    this.onEndpointDeactivated = this.onEndpointDeactivated.bind(this);
     this.send = this.send.bind(this);
   };
-  
+
+  /**
+   * TODO
+   */
+  _onEndpointActivated(endpoint) {
+    this._attachEndpoint(endpoint);
+  }
+
+  /**
+   * TODO
+   */
+  _onEndpointDeactivated(endpoint) {
+    this._terminateEndpoint(endpoint);
+  }
+
+  /**
+   * TODO
+   */
   connect(address) {
     let endpoint = new Endpoint(address);
-    endpoint.activated = this.onEndpointActivated;
-    endpoint.deactivated = this.onEndpointDeactivated;
-    endpoint.onMessage = this.xonMessage;
+    endpoint.activated = this._onEndpointActivated;
+    endpoint.deactivated = this._onEndpointDeactivated;
+    endpoint.onMessage = this._onMessage;
     this.endpoints.push(endpoint);
   };
-  
+
+  /**
+   * TODO
+   */
   disconnect(address, code = undefined, reason = undefined) {
     const endpoint = this.endpoints.find(endpoint => {
       return (endpoint.address === address);
@@ -314,24 +350,24 @@ export class ZWSSocket {
       this.endpoints.splice(this.endpoints.indexOf(endpoint), 1);
     } else {
       throw new Error("Failed to disconnect from address \""
-        + address + "\" - endpoint not connected to this address");
+        + address + "\" - endpoint not connected to this address", this.endpoints);
     }
   };
-  
+
+  /**
+   * TODO
+   * @return {Boolean}
+   */
   getHasOut() {
-    return xhasOut();
+    return this._hasOut();
   };
 
-  onEndpointActivated(endpoint) {
-    this.xattachEndpoint(endpoint);
-  }
-
-  onEndpointDeactivated(endpoint) {
-    this.xendpointTerminated(endpoint);
-  }
-
+  /**
+   * TODO
+   * @return {Boolean}
+   */
   send(message) {
-    return this.xsend(message);
+    return this._send(message);
   };
 }
 
@@ -348,33 +384,83 @@ export class Dealer extends ZWSSocket {
       }
     }.bind(this);
 
-    this.xattachEndpoint = this.xattachEndpoint.bind(this);
-    this.xendpointTerminated = this.xendpointTerminated.bind(this);
-    this.xhasOut = this.xhasOut.bind(this);
-    this.xonMessage = this.xonMessage.bind(this);
-    this.xsend = this.xsend.bind(this);
+    this._responseQueue = [];
+    this._responseCallbackQueue = [];
+
+    this._attachEndpoint = this._attachEndpoint.bind(this);
+    this._terminateEndpoint = this._terminateEndpoint.bind(this);
+    this._hasOut = this._hasOut.bind(this);
+    this._onMessage = this._onMessage.bind(this);
+    this._send = this._send.bind(this);
   };
 
-  xattachEndpoint(endpoint) {
+  /**
+   * TODO
+   * @param {}
+   */
+  _attachEndpoint(endpoint) {
     this.lb.attach(endpoint);
   }
 
-  xendpointTerminated(endpoint) {
-    this.lb.terminated(endpoint);
+  /**
+   * TODO
+   * @param {}
+   */
+  _terminateEndpoint(endpoint) {
+    this.lb.terminate(endpoint);
   }
 
-  xhasOut() {
+  /**
+   * TODO
+   * @return {Boolean}
+   */
+  _hasOut() {
     return this.lb.getHasOut();
   }
-  
-  xonMessage(endpoint, message) {
+
+  /**
+   * TODO
+   * @param {}
+   * @param {}
+   */
+  _onMessage(endpoint, message) {
+    // Do nothing with the sender peer for now
+
+    // If general callback exists, execute it  // TODO(aelsen): remove?
     if (this.onMessage != null) {
       this.onMessage(message);
     }
+    // If response callback exists, execute it
+    if (this._responseCallbackQueue.length !== 0) {
+      this._responseCallbackQueue.shift().resolve(message);
+
+    // Otherwise, queue message
+    } else {
+      this._responseQueue.push(message);
+    }
   }
-  
-  xsend(message) {
+
+  /**
+   * TODO
+   * @return {Boolean}
+   */
+  _send(message) {
     return this.lb.send(message);
+  }
+
+  /**
+   * TODO
+   */
+  receive() {
+    if (this._responseQueue.length !== 0) {
+      return Promise.resolve(this._responseQueue.shift());
+    }
+    if (!this.getHasOut) {
+      return Promise.reject(new Error("Failed to receive message - client not connected"));
+    }
+    return new Promise((resolve, reject) => {
+      this._responseCallbackQueue.push({ resolve, reject });
+    });
   }
 }
 
@@ -387,6 +473,14 @@ export class Subscriber extends ZWSSocket {
     this.endpoints = [];
     this.isActive = false;
     this.subscriptions = [];
+
+    this._attachEndpoint = this._attachEndpoint.bind(this);
+    this._createSubscriptionMessageReceived = this._createSubscriptionMessageReceived.bind(this);
+    this._terminateEndpoint = this._terminateEndpoint.bind(this);
+    this._onMessage = this._onMessage.bind(this);
+    this._send = this._send.bind(this);
+    this.subscribe = this.subscribe.bind(this);
+    this.unsubscribe = this.unsubscribe.bind(this);
   }
 
   /**
@@ -406,7 +500,7 @@ export class Subscriber extends ZWSSocket {
     // TODO: check if the subscription already exists
     this.subscriptions.push(subscription);
 
-    const message = createSubscriptionMessageReceived(subscription, true);
+    const message = _createSubscriptionMessageReceived(subscription, true);
 
     for (var i = 0; i < this.endpoints.length; i++) {
       this.endpoints[i].write(message);
@@ -447,20 +541,20 @@ export class Subscriber extends ZWSSocket {
       }
     }
 
-    var message = createSubscriptionMessageReceived(subscription, false);
+    var message = _createSubscriptionMessageReceived(subscription, false);
 
     for (var i = 0; i < this.endpoints.length; i++) {
       this.endpoints[i].write(message);
     }
   };
-  
+
 
   /**
    * TODO
    * @param {*} subscription
    * @param {*} subscribe
    */
-  createSubscriptionMessageReceived(subscription, subscribe) {
+  _createSubscriptionMessageReceived(subscription, subscribe) {
     var frame = new Uint8Array(subscription.length + 1);
     frame[0] = subscribe ? 1 : 0;
     frame.set(subscription, 1);
@@ -471,11 +565,14 @@ export class Subscriber extends ZWSSocket {
     return message;
   }
 
-  xattachEndpoint(endpoint) {
+  /**
+   * TODO
+   */
+  _attachEndpoint(endpoint) {
     this.endpoints.push(endpoint);
 
     for (var i = 0; i < subscriptions.length; i++) {
-      var message = createSubscriptionMessageReceived(subscriptions[i], true);
+      var message = _createSubscriptionMessageReceived(subscriptions[i], true);
 
       endpoint.write(message);
     }
@@ -489,20 +586,32 @@ export class Subscriber extends ZWSSocket {
     }
   }
 
-  xendpointTerminated(endpoint) {
+  /**
+   * TODO
+   */
+  _terminateEndpoint(endpoint) {
     var index = endpoints.indexOf(endpoint);
     endpoints.splice(index, 1);
   }
 
-  xhasOut() {
+  /**
+   * TODO
+   */
+  _hasOut() {
     return false;
   }
 
-  xsend(message, more) {
+  /**
+   * TODO
+   */
+  _send(message, more) {
     throw new Error("Failed to send message - send not supported on SUB type socket");
   }
 
-  xonMessage(endpoint, message) {
+  /**
+   * TODO
+   */
+  _onMessage(endpoint, message) {
     if (this.onMessage != null) {
       this.onMessage(message);
     }
@@ -563,7 +672,7 @@ export class Message {
 
     } else if (data instanceof Uint8Array) {
       this.frames.push(data.buffer);
-      
+
     } else {
       throw new Error("Failed to add buffer to message - unknown buffer type \"" + typeof buffer + "\"");
     }
@@ -657,7 +766,7 @@ export class Message {
   getUint(i, size = 4) {
     return NumberUtility.bytesToUint(this.getBuffer(i), size);
   }
-  
+
   /**
    * Insert a buffer at frame index i of the message
    * @param {number} i - Insert index
@@ -674,7 +783,7 @@ export class Message {
 
     } else if (data instanceof Uint8Array) {
       this.frames.splice(i, 0, data.buffer);
-      
+
     } else {
       throw new Error("Failed to insert buffer into message - unknown buffer type \"" + typeof buffer + "\"");
     }
@@ -726,7 +835,7 @@ export class Message {
   insertUint(i, number, size = 4) {
     return this.insertBuffer(i, NumberUtility.uintToBytes(number, size));
   }
-  
+
   /**
    * Pop the first frame of the message, as an ArrayBuffer
    * @return {ArrayBuffer} - Frame payload
@@ -737,7 +846,7 @@ export class Message {
 
     return frame;
   }
-  
+
   /**
    * Pop the first frame of the message, as a float
    * @param {number} size - Size in bytes of float (default: 8)
