@@ -610,33 +610,6 @@ export class Subscriber extends ZWSSocket {
 export class Message {
   constructor() {
     this.frames = [];  // Array of ArrayBuffers. Each ArrayBuffer represents a frame.
-
-    this.getSize = this.getSize.bind(this);
-
-    this.addBuffer = this.addBuffer.bind(this);
-    this.addFloat = this.addFloat.bind(this);
-    this.addInt = this.addInt.bind(this);
-    this.addString = this.addString.bind(this);
-    this.addUint = this.addUint.bind(this);
-
-    this.getBuffer = this.getBuffer.bind(this);
-    this.getFloat = this.getFloat.bind(this);
-    this.getInt = this.getInt.bind(this);
-    this.getString = this.getString.bind(this);
-    this.getUint = this.getUint.bind(this);
-
-    this.insertBuffer = this.insertBuffer.bind(this);
-    this.insertFloat = this.insertFloat.bind(this);
-    this.insertInt = this.insertInt.bind(this);
-    this.insertString = this.insertString.bind(this);
-    this.insertUint = this.insertUint.bind(this);
-
-    this.popBuffer = this.popBuffer.bind(this);
-    this.popFloat = this.popFloat.bind(this);
-    this.popBuffer = this.popBuffer.bind(this);
-    this.popInt = this.popInt.bind(this);
-    this.popString = this.popString.bind(this);
-    this.popUint = this.popUint.bind(this);
   }
 
   /**
