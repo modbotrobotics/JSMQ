@@ -202,11 +202,11 @@ describe('dealer send and receive', () => {
     const ready = jest.fn(message => {
       expect.assertions(3);
       dealer.send(testMessageA);
-      dealer.receive().then(response => {expect(response.frames).toEqual(testMessageA.frames)});
+      dealer.receive().then(response => { expect(response.frames).toEqual(testMessageA.frames) });
       dealer.send(testMessageB);
-      dealer.receive().then(response => {expect(response.frames).toEqual(testMessageB.frames)});
+      dealer.receive().then(response => { expect(response.frames).toEqual(testMessageB.frames) });
       dealer.send(testMessageC);
-      dealer.receive().then(response => {expect(response.frames).toEqual(testMessageC.frames)});
+      dealer.receive().then(response => { expect(response.frames).toEqual(testMessageC.frames) });
     });
 
     server.on('connection', socket => {

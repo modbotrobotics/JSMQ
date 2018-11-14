@@ -161,6 +161,7 @@ class Endpoint {
       code = CloseEvent.CLOSE_NO_STATUS;  // WebSocket CloseEvent code 1005 "No Status Recvd"
     }
     this._webSocket.close(code, reason);
+    this._websocket = null;
   }
 
   /**
@@ -206,7 +207,6 @@ class Endpoint {
 
     for (let j = 0; j < messageSize; j++) {
       const frame = message.getBuffer(j);
-
 
       let data = new Uint8Array(frame.byteLength + 1);
       let more = j == messageSize - 1 ? 0 : 1;
@@ -344,7 +344,7 @@ export class ZWSSocket {
     const endpoint = this.endpoints.find(endpoint => {
       return (endpoint.address === address);
     });
-
+    
     if (endpoint !== undefined) {
       endpoint.close(code, reason);
       this.endpoints.splice(this.endpoints.indexOf(endpoint), 1);
@@ -378,11 +378,11 @@ export class Dealer extends ZWSSocket {
   constructor() {
     super();
     this.lb = new LoadBalancer();
-    this.lb.writeActivated = function() {
+    this.lb.writeActivated = () => {
       if (this.sendReady != null) {
         this.sendReady();
       }
-    }.bind(this);
+    };
 
     this._responseQueue = [];
     this._responseCallbackQueue = [];
@@ -392,6 +392,8 @@ export class Dealer extends ZWSSocket {
     this._hasOut = this._hasOut.bind(this);
     this._onMessage = this._onMessage.bind(this);
     this._send = this._send.bind(this);
+
+    this.receive = this.receive.bind(this);
   };
 
   /**
@@ -424,8 +426,9 @@ export class Dealer extends ZWSSocket {
    * @param {}
    */
   _onMessage(endpoint, message) {
+    console.log("Dealer _onMessage this:", this);
     // Do nothing with the sender peer for now
-
+    
     // If general callback exists, execute it  // TODO(aelsen): remove?
     if (this.onMessage != null) {
       this.onMessage(message);
@@ -433,8 +436,8 @@ export class Dealer extends ZWSSocket {
     // If response callback exists, execute it
     if (this._responseCallbackQueue.length !== 0) {
       this._responseCallbackQueue.shift().resolve(message);
-
-    // Otherwise, queue message
+      
+      // Otherwise, queue message
     } else {
       this._responseQueue.push(message);
     }
@@ -452,6 +455,7 @@ export class Dealer extends ZWSSocket {
    * TODO
    */
   receive() {
+    console.log("Dealer receive this:", this);
     if (this._responseQueue.length !== 0) {
       return Promise.resolve(this._responseQueue.shift());
     }
@@ -808,7 +812,7 @@ export class Message {
    * @return {Message} - Updated message
    */
   insertInt(i, number, size = 4) {
-    return this.insertBuffer(i, NumberUtility.int16ToBytes(number, size));
+    return this.insertBuffer(i, NumberUtility.intToBytes(number, size));
   }
 
   /**
