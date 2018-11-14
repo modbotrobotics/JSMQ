@@ -74,6 +74,10 @@ class Endpoint {
     let previousState = this._connectionState;
     this._connectionState = ConnectionState.CLOSED;
 
+    if (e.code !== 1000 && e.code !== 1005) {
+      console.log("Websocket closed - code: " + e.code + ", reason: \"" + e.reason + "\"");
+    }
+
     if ((previousState == ConnectionState.OPEN || previousState == ConnectionState.CLOSING)
       && this.deactivated != null) {
       this.deactivated(this);
@@ -89,8 +93,7 @@ class Endpoint {
     }
   
     if (this._connectionRetries < 10) {
-      console.log("NOT RETRYING");
-      // this.open();
+      this.open();
     }
   }
 
@@ -100,7 +103,6 @@ class Endpoint {
    * @param {*} e - event (unused)
    */
   _webSocketOnError(e) {
-    console.log("WebSocket error:", e);
   }
 
   /**
@@ -166,7 +168,7 @@ class Endpoint {
   close(code = undefined, reason = undefined) {
     this._connectionState = ConnectionState.CLOSING;
     if (code === undefined) {
-      code = CloseEvent.CLOSE_NO_STATUS;  // WebSocket CloseEvent code 1005 "No Status Recvd"
+      code = 1000;  // WebSocket CloseEvent code 1005 "No Status Recvd"
     }
     this._webSocket.close(code, reason);
     this._websocket = null;
