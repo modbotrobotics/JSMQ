@@ -23,6 +23,17 @@ describe('message creation', () => {
     message = new Message();
   });
 
+  test('add boolean', () => {
+    message.addBoolean(true);
+    message.addBoolean(false);
+    
+    expect(message.getBoolean(0)).toBeTruthy();
+    expect(message.getBoolean(1)).toBeFalsy();
+
+    expect(message.popBoolean()).toBeTruthy();
+    expect(message.popBoolean()).toBeFalsy();
+  });
+
   test('add buffer', () => {
     message.addBuffer(testBufferA);
     message.addBuffer(testBufferB);

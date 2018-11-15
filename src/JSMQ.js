@@ -91,7 +91,7 @@ class Endpoint {
       this._webSocket = null;
       return;
     }
-  
+
     if (this._connectionRetries < 10) {
       this.open();
     }
@@ -173,14 +173,14 @@ class Endpoint {
     this._webSocket.close(code, reason);
     this._websocket = null;
   }
-  
+
   /**
    * TODO
    */
   isOpen() {
     return (this._connectionState === ConnectionState.OPEN);
   }
-  
+
   /**
    * Open a WebSocket connection to the endpoint address
    */
@@ -191,7 +191,7 @@ class Endpoint {
       this._webSocket.onmessage = null;
       this._webSocket.onopen = null;
     }
-    
+
     this._webSocket = new window.WebSocket(this.address, ["WSNetMQ"]);
     this._webSocket.binaryType = "arraybuffer";
     this._connectionState = ConnectionState.CONNECTING;
@@ -344,7 +344,7 @@ export class ZWSSocket {
     const endpoint = this.endpoints.find(endpoint => {
       return (endpoint.address === address);
     });
-    
+
     if (endpoint !== undefined) {
       endpoint.close(code, reason);
       this.endpoints.splice(this.endpoints.indexOf(endpoint), 1);
@@ -419,7 +419,7 @@ export class Dealer extends ZWSSocket {
    */
   _onMessage(endpoint, message) {
     // Do nothing with the sender peer for now
-    
+
     // If general callback exists, execute it  // TODO(aelsen): remove?
     if (this.onMessage != null) {
       this.onMessage(message);
@@ -427,7 +427,7 @@ export class Dealer extends ZWSSocket {
     // If response callback exists, execute it
     if (this._responseCallbackQueue.length !== 0) {
       this._responseCallbackQueue.shift().resolve(message);
-      
+
       // Otherwise, queue message
     } else {
       this._responseQueue.push(message);
@@ -621,6 +621,15 @@ export class Message {
   }
 
   /**
+   * Append a boolean to the end of the message
+   * @param {Boolean} bool - Buffer of data to append
+   * @return {Message} - Updated message
+   */
+  addBoolean(bool) {
+    return this.addBuffer(NumberUtility.booleanToBytes(bool));
+  }
+
+  /**
    * Append a buffer to the end of the message
    * @param {ArrayBuffer} buffer - Buffer of data to append
    * @return {Message} - Updated message
@@ -682,6 +691,15 @@ export class Message {
     return this.addBuffer(NumberUtility.uintToBytes(number, size));
   }
 
+
+  /**
+   * Get a boolean at the specified frame location
+   * @param {Boolean} i - Index of frame to fetch
+   */
+  getBoolean(i) {
+    return NumberUtility.bytesToBoolean(this.getBuffer(i));
+  }
+
   /**
    * Get the frame at the specified location
    * @param {number} i - Frame location
@@ -724,6 +742,16 @@ export class Message {
    */
   getUint(i, size = 4) {
     return NumberUtility.bytesToUint(this.getBuffer(i), size);
+  }
+
+  /**
+   * Insert a boolean at frame index i of the message
+   * @param {number} i - Insert index
+   * @param {Boolean} bool - Number to insert
+   * @return {Message} - Updated message
+   */
+  insertBoolean(i, bool) {
+    return this.insertBuffer(i, NumberUtility.booleanToBytes(bool));
   }
 
   /**
@@ -796,6 +824,15 @@ export class Message {
   }
 
   /**
+   * Pop the first frame of the message, as a boolean
+   * @return {Boolean}
+   */
+  popBoolean() {
+    const frame = this.popBuffer();
+    return NumberUtility.bytesToBoolean(frame);
+  }
+
+  /**
    * Pop the first frame of the message, as an ArrayBuffer
    * @return {ArrayBuffer} - Frame payload
    */
@@ -851,6 +888,12 @@ function NumberUtility() {}
 
 NumberUtility.littleEndian = true;
 
+NumberUtility.bytesToBoolean = function (arr) {
+  let view = new DataView(arr);
+
+  return (view.getInt8(0, NumberUtility.littleEndian) > 0 ? true : false);
+}
+
 NumberUtility.bytesToFloat = function (arr, size) {
   let view = new DataView(arr);
 
@@ -889,6 +932,14 @@ NumberUtility.bytesToUint = function (arr, size) {
   } else {
     throw new Error("Failed to convert bytes to int - invalid integer size (size of " + size + ")");
   }
+}
+
+NumberUtility.booleanToBytes = function (bool) {
+  let arr = new ArrayBuffer(1);
+  let view = new DataView(arr);
+
+  view.setInt8(0, (bool ? 1 : 0), NumberUtility.littleEndian);
+  return arr;
 }
 
 NumberUtility.floatToBytes = function (num, size) {
