@@ -1,5 +1,5 @@
 {
-  "name": "jsmq",
+  "name": "@modbot/jsmq",
   "version": "0.1.0",
   "description": "ZeroMQ over Websockets & Javascript",
   "main": "index.js",
@@ -31,7 +31,7 @@
     "url": "git+https://github.com/modbotrobotics/JSMQ.git"
   },
   "author": "Modbot",
-  "license": "MPL",
+  "license": "MPL-2.0",
   "bugs": {
     "url": "https://github.com/modbotrobotics/JSMQ/issues"
   },
