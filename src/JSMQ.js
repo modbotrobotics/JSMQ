@@ -308,6 +308,7 @@ class LoadBalancer {
 export class ZWSSocket {
   constructor() {
     this.endpoints = [];
+    this.onDisconnect = null;
     this.onMessage = null;
   };
 
@@ -323,6 +324,9 @@ export class ZWSSocket {
    */
   _onEndpointDeactivated(endpoint) {
     this._terminateEndpoint(endpoint);
+    if (this.onDisconnect != null) {
+      this.onDisconnect(endpoint);
+    }
   }
 
   /**
