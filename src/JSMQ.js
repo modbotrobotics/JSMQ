@@ -70,6 +70,7 @@ class Endpoint {
    * @param {*} e - event (unused)
    */
   _webSocketOnClose(e) {
+    console.log("JSMQ Endpoint WebSocket closed");
     let previousState = this._connectionState;
     this._connectionState = ConnectionState.CLOSED;
 
@@ -152,6 +153,7 @@ class Endpoint {
    * @param {*} e - event (unused)
    */
   _webSocketOnOpen(e) {
+    console.log("JSMQ Endpoint WebSocket opened");
     this._connectionRetries = 0;
 
     this._connectionState = ConnectionState.OPEN;
@@ -166,6 +168,7 @@ class Endpoint {
    * @param {string} reason - A string explaining why the connection is being clsoed
    */
   close(code = undefined, reason = undefined) {
+    console.log("JSMQ Endpoint closing WebSocket");
     this._connectionState = ConnectionState.CLOSING;
     if (code === undefined) {
       code = 1000;  // WebSocket CloseEvent code 1005 "No Status Recvd"
@@ -186,6 +189,7 @@ class Endpoint {
    * Open a WebSocket connection to the endpoint address
    */
   open() {
+    console.log("JSMQ Endpoint attempting to open WebSocket to address", this.address);
     if (this._webSocket != null) {
       this._webSocket.onclose = null;
       this._webSocket.onerror = null;
@@ -511,7 +515,7 @@ export class Subscriber extends ZWSSocket {
       subscription = StringUtility.StringToUint8Array(String(subscription));
     }
 
-    for (var j = 0; j < subscriptions.length; j++) {
+    for (var j = 0; j < this.subscriptions.length; j++) {
 
       if (this.subscriptions[j].length == subscription.length) {
         var equal = true;
@@ -566,8 +570,8 @@ export class Subscriber extends ZWSSocket {
       endpoint.write(message);
     }
 
-    if (!isActive) {
-      isActive = true;
+    if (!this.isActive) {
+      this.isActive = true;
 
       if (this.sendReady != null) {
         this.sendReady();
@@ -579,8 +583,8 @@ export class Subscriber extends ZWSSocket {
    * TODO
    */
   _terminateEndpoint(endpoint) {
-    var index = endpoints.indexOf(endpoint);
-    endpoints.splice(index, 1);
+    var index = this.endpoints.indexOf(endpoint);
+    this.endpoints.splice(index, 1);
   }
 
   /**
