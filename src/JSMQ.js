@@ -8,6 +8,9 @@ const ConnectionState = Object.freeze({
   CLOSED:                 3,
 });
 
+// DEBUG
+var debugLog = false;
+
 /**
  * Class representing a socket endpoint
  * @param {string} address - The endpoint address (ex: "ws://127.0.0.1:15798")
@@ -70,12 +73,12 @@ class Endpoint {
    * @param {*} e - event (unused)
    */
   _webSocketOnClose(e) {
-    console.log("JSMQ Endpoint WebSocket closed");
+    if (debugLog) if (debugLog) console.log("JSMQ | Endpoint WebSocket connection closed");
     let previousState = this._connectionState;
     this._connectionState = ConnectionState.CLOSED;
 
     if (e.code !== 1000 && e.code !== 1005) {
-      console.log("Websocket closed - code: " + e.code + ", reason: \"" + e.reason + "\"");
+      if (debugLog) console.log("JSMQ | Websocket closed - code: " + e.code + ", reason: \"" + e.reason + "\"");
     }
 
     if ((previousState == ConnectionState.OPEN || previousState == ConnectionState.CLOSING)
@@ -103,7 +106,7 @@ class Endpoint {
    * @param {*} e - event (unused)
    */
   _webSocketOnError(e) {
-    console.log("Websocket closed on error:", e);
+    if (debugLog) console.log("JSMQ | Websocket error:", e);
   }
 
   /**
@@ -129,7 +132,7 @@ class Endpoint {
       let arr = strs.map( str => {
         let result = parseInt(str);
         if (result === NaN || result > 255) {
-          console.log("Failed to parse message frame -- invalid string representation of data");
+          if (debugLog) console.log("JSMQ | Failed to parse message frame -- invalid string representation of data");
         }
         return result;
       });
@@ -141,7 +144,7 @@ class Endpoint {
 
     // Other message types are not supported and will be dropped
     } else {
-      console.log("Failed to parse message frame -- unsupported message type \"" + typeof e.data + "\"");
+      if (debugLog) console.log("JSMQ | Failed to parse message frame -- unsupported message type \"" + typeof e.data + "\"");
     }
   }
 
@@ -153,9 +156,9 @@ class Endpoint {
    * @param {*} e - event (unused)
    */
   _webSocketOnOpen(e) {
-    console.log("JSMQ Endpoint WebSocket opened");
+    if (debugLog) console.log("JSMQ | Endpoint WebSocket connection opened");
     this._connectionRetries = 0;
-
+    
     this._connectionState = ConnectionState.OPEN;
     if (this.activated != null) {
       this.activated(this);
@@ -168,7 +171,7 @@ class Endpoint {
    * @param {string} reason - A string explaining why the connection is being clsoed
    */
   close(code = undefined, reason = undefined) {
-    console.log("JSMQ Endpoint closing WebSocket");
+    if (debugLog) console.log("JSMQ | Endpoint closing WebSocket connection");
     this._connectionState = ConnectionState.CLOSING;
     if (code === undefined) {
       code = 1000;  // WebSocket CloseEvent code 1005 "No Status Recvd"
@@ -189,7 +192,7 @@ class Endpoint {
    * Open a WebSocket connection to the endpoint address
    */
   open() {
-    console.log("JSMQ Endpoint attempting to open WebSocket to address", this.address);
+    if (debugLog) console.log("JSMQ | Endpoint attempting to open WebSocket connection to address", this.address);
     if (this._webSocket != null) {
       this._webSocket.onclose = null;
       this._webSocket.onerror = null;
@@ -281,7 +284,7 @@ class LoadBalancer {
   send(message) {
     if (this.endpoints.length == 0) {
       this.isActive = false;
-      console.log("Failed to send message - no valid endpoints");
+      if (debugLog) console.log("JSMQ | Failed to send message - no valid endpoints");
       return false;
     }
 
@@ -303,6 +306,9 @@ class LoadBalancer {
     }
 
     this.endpoints.splice(index, 1);
+    if (this.endpoints.length == 0) {
+      this.isActive = false;
+    }
   }
 }
 
