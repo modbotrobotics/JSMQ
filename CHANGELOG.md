@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
 
-## Unreleased
+## [0.1.2] - 2018-11-28
 
 ### Added
 
@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 - Added `ZWSSock.disconnect(address)`
 - Added `NumberUtility` namespace and helper functions
 - Added string format support for `Endpoint`'s `processFrames()` (to Uint8Array)
+- Added the ability to partially parse frames (of multiple floats, ints, etc.)
 - Initialized node package, `package.json`
 - Added Babel, Jest, Mock-Socket as node package dependencies (for testing)
 - Added Dealer tests
