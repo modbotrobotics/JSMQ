@@ -1,5 +1,5 @@
 /**
- * WebSocket connection state
+ * Socket connection state
  */
 const ConnectionState = Object.freeze({
   CONNECTING:             0,
@@ -8,62 +8,59 @@ const ConnectionState = Object.freeze({
   CLOSED:                 3,
 });
 
+// DEBUG
+var debugLog = false;
+
 /**
- * Class representing a WebSocket endpoint
+ * Class representing a socket endpoint
  * @param {string} address - The endpoint address (ex: "ws://127.0.0.1:15798")
  */
 class Endpoint {
   constructor(address) {
     this.address = address;
-    this.incomingMessage = null;
-    this.connectionRetries = 0;
-    this.connectionState = ConnectionState.CLOSED;
-    this.webSocket = null;
-    
+
+    this._connectionRetries = 0;
+    this._connectionState = ConnectionState.CLOSED;
+    this._incomingMessage = null;
+    this._webSocket = null;
+
     this.activated = null;
     this.deactivated = null;
-    
-    this.close = this.close.bind(this);
-    this.isOpen = this.isOpen.bind(this);
-    this.onclose = this.onclose.bind(this);
-    this.onmessage = this.onmessage.bind(this);
-    this.onopen = this.onopen.bind(this);
-    this.open = this.open.bind(this);
-    this.processFrame = this.processFrame.bind(this);
-    this.write = this.write.bind(this);
-    
+
     this.open();
   }
 
   /**
-   * Close an open WebSocket connection or connection attempt
-   * @param {number} code - A numeric value status code explaining why the connection is being closed
-   * @param {string} reason - A string explaining why the connection is being clsoed
+   * TODO
    */
-  close(code = undefined, reason = undefined) {
-    if (code === undefined) {
-      code = CloseEvent.CLOSE_NO_STATUS;  // WebSocket CloseEvent code 1005 "No Status Recvd"
+  _onMessage() {
+    // Call bound callback
+    if (this.onMessage != null) {
+      this.onMessage(this, this._incomingMessage);
     }
-    this.webSocket.close(code, reason);
-  }
-
-  isOpen() {
-    return (this.connectionState === ConnectionState.OPEN);
+    this._incomingMessage = null;
   }
 
   /**
-   * Callback on WebSocket connection opened
+   * Process a message frame, adding the payload as an ArrayBuffer to its list of frames
    *
-   * On open, perform activated actions, set endpoint state to open.
-   *
-   * @param {*} e - event (unused)
+   * @param {ArrayBuffer} frame
    */
-  onopen(e) {
-    this.connectionRetries = 0;
+  _processFrame(frame) {
+    const view = new Uint8Array(frame);
+    const more = view[0];
+    const payload = new Uint8Array(view.subarray(1));
 
-    this.connectionState = ConnectionState.OPEN;
-    if (this.activated != null) {
-      this.activated(this);
+    if (this._incomingMessage == null) {
+      this._incomingMessage = new Message();
+    }
+
+    // Add buffer to the incoming message, removing the MORE byte
+    this._incomingMessage.addBuffer(payload);
+
+    // Last message frame, ZeroMQ message is complete
+    if (more == 0) {
+      this._onMessage();
     }
   }
 
@@ -75,19 +72,41 @@ class Endpoint {
    *
    * @param {*} e - event (unused)
    */
-  onclose(e) {
-    let previousState = this.connectionState;
-    this.connectionState = ConnectionState.CLOSED;
+  _webSocketOnClose(e) {
+    if (debugLog) if (debugLog) console.log("JSMQ | Endpoint WebSocket connection closed");
+    let previousState = this._connectionState;
+    this._connectionState = ConnectionState.CLOSED;
 
-    if (previousState == ConnectionState.OPEN && this.deactivated != null) {
+    if (e.code !== 1000 && e.code !== 1005) {
+      if (debugLog) console.log("JSMQ | Websocket closed - code: " + e.code + ", reason: \"" + e.reason + "\"");
+    }
+
+    if ((previousState == ConnectionState.OPEN || previousState == ConnectionState.CLOSING)
+      && this.deactivated != null) {
       this.deactivated(this);
     }
 
-    if (this.connectionRetries > 10) {
-      window.setTimeout(this.open, 2000);
-    } else {
+    if (previousState == ConnectionState.CLOSING) {
+      this._webSocket.onclose = null;
+      this._webSocket.onerror = null;
+      this._webSocket.onmessage = null;
+      this._webSocket.onopen = null;
+      this._webSocket = null;
+      return;
+    }
+
+    if (this._connectionRetries < 10) {
       this.open();
     }
+  }
+
+  /**
+   * Callback on WebSocket connection error
+   *
+   * @param {*} e - event (unused)
+   */
+  _webSocketOnError(e) {
+    if (debugLog) console.log("JSMQ | Websocket error:", e);
   }
 
   /**
@@ -98,13 +117,12 @@ class Endpoint {
    *
    * @param {*} e - The message event; May contain a Blob or ArrayBuffer
    */
-  onmessage(e) {
-    // Parse blobs
+  _webSocketOnMessage(e) {
+    // Parse Blob
     if (e.data instanceof Blob) {
-      let arrayBuffer;
       let fileReader = new FileReader();
       fileReader.onload = function () {
-        this.processFrame(this.result);
+        this._processFrame(this.result);
       };
       fileReader.readAsArrayBuffer(e.data);
 
@@ -114,68 +132,84 @@ class Endpoint {
       let arr = strs.map( str => {
         let result = parseInt(str);
         if (result === NaN || result > 255) {
-          throw new Error("Could not parse message -- invalid string representation of data");
+          if (debugLog) console.log("JSMQ | Failed to parse message frame -- invalid string representation of data");
         }
         return result;
       });
-      this.processFrame(arr);
+      this._processFrame(arr);
 
     // Parse ArrayBuffer
     } else if (e.data instanceof ArrayBuffer) {
-      this.processFrame(e.data);
+      this._processFrame(e.data);
 
     // Other message types are not supported and will be dropped
     } else {
-      throw new Error ("Could not parse message -- unsupported message type \"" + typeof e.data + "\":", e.data);
+      if (debugLog) console.log("JSMQ | Failed to parse message frame -- unsupported message type \"" + typeof e.data + "\"");
     }
+  }
+
+  /**
+   * Callback on WebSocket connection opened
+   *
+   * On open, perform activated actions, set endpoint state to open.
+   *
+   * @param {*} e - event (unused)
+   */
+  _webSocketOnOpen(e) {
+    if (debugLog) console.log("JSMQ | Endpoint WebSocket connection opened");
+    this._connectionRetries = 0;
+    
+    this._connectionState = ConnectionState.OPEN;
+    if (this.activated != null) {
+      this.activated(this);
+    }
+  }
+
+  /**
+   * Close an open WebSocket connection or connection attempt
+   * @param {number} code - A numeric value status code explaining why the connection is being closed
+   * @param {string} reason - A string explaining why the connection is being clsoed
+   */
+  close(code = undefined, reason = undefined) {
+    if (debugLog) console.log("JSMQ | Endpoint closing WebSocket connection");
+    this._connectionState = ConnectionState.CLOSING;
+    if (code === undefined) {
+      code = 1000;  // WebSocket CloseEvent code 1005 "No Status Recvd"
+    }
+
+    this._webSocket.close(code, reason);
+    this._websocket = null;
+  }
+
+  /**
+   * TODO
+   */
+  isOpen() {
+    return (this._connectionState === ConnectionState.OPEN);
   }
 
   /**
    * Open a WebSocket connection to the endpoint address
    */
   open() {
-    if (this.webSocket != null) {
-      this.webSocket.onopen = null;
-      this.webSocket.onclose = null;
-      this.webSocket.onmessage = null;
+    if (debugLog) console.log("JSMQ | Endpoint attempting to open WebSocket connection to address", this.address);
+    if (this._webSocket != null) {
+      this._webSocket.onclose = null;
+      this._webSocket.onerror = null;
+      this._webSocket.onmessage = null;
+      this._webSocket.onopen = null;
     }
 
-    this.webSocket = new window.WebSocket(this.address, ["WSNetMQ"]);
-    this.webSocket.binaryType = "arraybuffer";
-    this.connectionState = ConnectionState.CONNECTING;
+    this._webSocket = new window.WebSocket(this.address, ["WSNetMQ"]);
+    this._webSocket.binaryType = "arraybuffer";
+    this._connectionState = ConnectionState.CONNECTING;
 
-    this.webSocket.onopen = this.onopen;
-    this.webSocket.onclose = this.onclose;
-    this.webSocket.onmessage = this.onmessage;
+    this._webSocket.onopen = this._webSocketOnOpen.bind(this);
+    this._webSocket.onclose = this._webSocketOnClose.bind(this);
+    this._webSocket.onerror = this._webSocketOnError.bind(this);
+    this._webSocket.onmessage = this._webSocketOnMessage.bind(this);
 
-    this.connectionRetries++;
-  }
-
-  /**
-   * Process a message frame, adding the payload as an ArrayBuffer to its list of frames
-   *
-   * @param {ArrayBuffer} frame
-   */
-  processFrame(frame) {
-    const view = new Uint8Array(frame);
-    const more = view[0];
-    const payload = new Uint8Array(view.subarray(1));
-    
-    if (this.incomingMessage == null) {
-      this.incomingMessage = new Message();
-    }
-
-    // Add buffer to the incoming message, removing the MORE byte
-    this.incomingMessage.addBuffer(payload);
-    
-    // last message
-    if (more == 0) {
-      if (this.onMessage != null) {
-        this.onMessage(this, this.incomingMessage);
-      }
-
-      this.incomingMessage = null;
-    }
+    this._connectionRetries++;
   }
 
   /**
@@ -193,20 +227,18 @@ class Endpoint {
 
     for (let j = 0; j < messageSize; j++) {
       const frame = message.getBuffer(j);
-
-
       let data = new Uint8Array(frame.byteLength + 1);
       let more = j == messageSize - 1 ? 0 : 1;
       data[0] = more;  // set the MORE byte
       data.set(new Uint8Array(frame), 1);
-
-      this.webSocket.send(data);
+      this._webSocket.send(data);
     }
   }
 }
 
 /**
- * Class acting as Load Balancer
+ * Load Balancer for DEALER socket.
+ * Each message sent is round-robined among connected peers.
  */
 class LoadBalancer {
   constructor () {
@@ -214,11 +246,6 @@ class LoadBalancer {
     this.endpoints = [];
     this.isActive = false;
     this.writeActivated = null;
-
-    this.attach = this.attach.bind(this);
-    this.getHasOut = this.getHasOut.bind(this);
-    this.send = this.send.bind(this);
-    this.terminated = this.terminated.bind(this);
   }
   /**
    * Attach: add an endpoint to list of endpoints
@@ -238,6 +265,7 @@ class LoadBalancer {
 
   /**
    * TODO
+   * @return {Boolean}
    */
   getHasOut() {
     if (this.inprogress) {
@@ -248,14 +276,15 @@ class LoadBalancer {
   }
 
   /**
-   * Send message over current the endpoint
+   * Send message over the current endpoint
+   * Endpoints are alternated in a round robin fashion.
    * @param {Message} message - The message to send
    * @return {Boolean} - Success
    */
   send(message) {
     if (this.endpoints.length == 0) {
       this.isActive = false;
-      throw new Error ("Failed to send message - no valid endpoints");
+      if (debugLog) console.log("JSMQ | Failed to send message - no valid endpoints");
       return false;
     }
 
@@ -269,7 +298,7 @@ class LoadBalancer {
    * Terminate: remove an endpoint from list of endpoints
    * @param {Endpoint} endpoint
    */
-  terminated(endpoint) {
+  terminate(endpoint) {
     const index = this.endpoints.indexOf(endpoint);
 
     if (this.current == this.endpoints.length - 1) {
@@ -277,6 +306,9 @@ class LoadBalancer {
     }
 
     this.endpoints.splice(index, 1);
+    if (this.endpoints.length == 0) {
+      this.isActive = false;
+    }
   }
 }
 
@@ -284,26 +316,43 @@ class LoadBalancer {
  * ZWSSocket
  */
 export class ZWSSocket {
-  constructor () {
+  constructor() {
     this.endpoints = [];
+    this.onDisconnect = null;
     this.onMessage = null;
-
-    this.connect = this.connect.bind(this);
-    this.disconnect = this.disconnect.bind(this);
-    this.getHasOut = this.getHasOut.bind(this);
-    this.onEndpointActivated = this.onEndpointActivated.bind(this);
-    this.onEndpointDeactivated = this.onEndpointDeactivated.bind(this);
-    this.send = this.send.bind(this);
   };
-  
+
+  /**
+   * TODO
+   */
+  _onEndpointActivated(endpoint) {
+    this._attachEndpoint(endpoint);
+  }
+
+  /**
+   * TODO
+   */
+  _onEndpointDeactivated(endpoint) {
+    this._terminateEndpoint(endpoint);
+    if (this.onDisconnect != null) {
+      this.onDisconnect(endpoint);
+    }
+  }
+
+  /**
+   * TODO
+   */
   connect(address) {
     let endpoint = new Endpoint(address);
-    endpoint.activated = this.onEndpointActivated;
-    endpoint.deactivated = this.onEndpointDeactivated;
-    endpoint.onMessage = this.xonMessage;
+    endpoint.activated = this._onEndpointActivated.bind(this);
+    endpoint.deactivated = this._onEndpointDeactivated.bind(this);
+    endpoint.onMessage = this._onMessage.bind(this);
     this.endpoints.push(endpoint);
   };
-  
+
+  /**
+   * TODO
+   */
   disconnect(address, code = undefined, reason = undefined) {
     const endpoint = this.endpoints.find(endpoint => {
       return (endpoint.address === address);
@@ -314,24 +363,24 @@ export class ZWSSocket {
       this.endpoints.splice(this.endpoints.indexOf(endpoint), 1);
     } else {
       throw new Error("Failed to disconnect from address \""
-        + address + "\" - endpoint not connected to this address");
+        + address + "\" - endpoint not connected to this address", this.endpoints);
     }
   };
-  
+
+  /**
+   * TODO
+   * @return {Boolean}
+   */
   getHasOut() {
-    return xhasOut();
+    return this._hasOut();
   };
 
-  onEndpointActivated(endpoint) {
-    this.xattachEndpoint(endpoint);
-  }
-
-  onEndpointDeactivated(endpoint) {
-    this.xendpointTerminated(endpoint);
-  }
-
+  /**
+   * TODO
+   * @return {Boolean}
+   */
   send(message) {
-    return this.xsend(message);
+    return this._send(message);
   };
 }
 
@@ -342,39 +391,83 @@ export class Dealer extends ZWSSocket {
   constructor() {
     super();
     this.lb = new LoadBalancer();
-    this.lb.writeActivated = function() {
+    this.lb.writeActivated = () => {
       if (this.sendReady != null) {
         this.sendReady();
       }
-    }.bind(this);
+    };
 
-    this.xattachEndpoint = this.xattachEndpoint.bind(this);
-    this.xendpointTerminated = this.xendpointTerminated.bind(this);
-    this.xhasOut = this.xhasOut.bind(this);
-    this.xonMessage = this.xonMessage.bind(this);
-    this.xsend = this.xsend.bind(this);
+    this._responseQueue = [];
+    this._responseCallbackQueue = [];
   };
 
-  xattachEndpoint(endpoint) {
+  /**
+   * TODO
+   * @param {}
+   */
+  _attachEndpoint(endpoint) {
     this.lb.attach(endpoint);
   }
 
-  xendpointTerminated(endpoint) {
-    this.lb.terminated(endpoint);
+  /**
+   * TODO
+   * @param {}
+   */
+  _terminateEndpoint(endpoint) {
+    this.lb.terminate(endpoint);
   }
 
-  xhasOut() {
+  /**
+   * TODO
+   * @return {Boolean}
+   */
+  _hasOut() {
     return this.lb.getHasOut();
   }
-  
-  xonMessage(endpoint, message) {
+
+  /**
+   * TODO
+   * @param {}
+   * @param {}
+   */
+  _onMessage(endpoint, message) {
+    // Do nothing with the sender peer for now
+
+    // If general callback exists, execute it  // TODO(aelsen): remove?
     if (this.onMessage != null) {
       this.onMessage(message);
     }
+    // If response callback exists, execute it
+    if (this._responseCallbackQueue.length !== 0) {
+      this._responseCallbackQueue.shift().resolve(message);
+
+      // Otherwise, queue message
+    } else {
+      this._responseQueue.push(message);
+    }
   }
-  
-  xsend(message) {
+
+  /**
+   * TODO
+   * @return {Boolean}
+   */
+  _send(message) {
     return this.lb.send(message);
+  }
+
+  /**
+   * TODO
+   */
+  receive() {
+    if (this._responseQueue.length !== 0) {
+      return Promise.resolve(this._responseQueue.shift());
+    }
+    if (!this.getHasOut) {
+      return Promise.reject(new Error("Failed to receive message - client not connected"));
+    }
+    return new Promise((resolve, reject) => {
+      this._responseCallbackQueue.push({ resolve, reject });
+    });
   }
 }
 
@@ -406,7 +499,7 @@ export class Subscriber extends ZWSSocket {
     // TODO: check if the subscription already exists
     this.subscriptions.push(subscription);
 
-    const message = createSubscriptionMessageReceived(subscription, true);
+    const message = this._createSubscriptionMessageReceived(subscription, true);
 
     for (var i = 0; i < this.endpoints.length; i++) {
       this.endpoints[i].write(message);
@@ -428,7 +521,7 @@ export class Subscriber extends ZWSSocket {
       subscription = StringUtility.StringToUint8Array(String(subscription));
     }
 
-    for (var j = 0; j < subscriptions.length; j++) {
+    for (var j = 0; j < this.subscriptions.length; j++) {
 
       if (this.subscriptions[j].length == subscription.length) {
         var equal = true;
@@ -447,20 +540,20 @@ export class Subscriber extends ZWSSocket {
       }
     }
 
-    var message = createSubscriptionMessageReceived(subscription, false);
+    var message = this._createSubscriptionMessageReceived(subscription, false);
 
     for (var i = 0; i < this.endpoints.length; i++) {
       this.endpoints[i].write(message);
     }
   };
-  
+
 
   /**
    * TODO
    * @param {*} subscription
    * @param {*} subscribe
    */
-  createSubscriptionMessageReceived(subscription, subscribe) {
+  _createSubscriptionMessageReceived(subscription, subscribe) {
     var frame = new Uint8Array(subscription.length + 1);
     frame[0] = subscribe ? 1 : 0;
     frame.set(subscription, 1);
@@ -471,17 +564,20 @@ export class Subscriber extends ZWSSocket {
     return message;
   }
 
-  xattachEndpoint(endpoint) {
+  /**
+   * TODO
+   */
+  _attachEndpoint(endpoint) {
     this.endpoints.push(endpoint);
 
     for (var i = 0; i < subscriptions.length; i++) {
-      var message = createSubscriptionMessageReceived(subscriptions[i], true);
+      var message = this._createSubscriptionMessageReceived(subscriptions[i], true);
 
       endpoint.write(message);
     }
 
-    if (!isActive) {
-      isActive = true;
+    if (!this.isActive) {
+      this.isActive = true;
 
       if (this.sendReady != null) {
         this.sendReady();
@@ -489,20 +585,32 @@ export class Subscriber extends ZWSSocket {
     }
   }
 
-  xendpointTerminated(endpoint) {
-    var index = endpoints.indexOf(endpoint);
-    endpoints.splice(index, 1);
+  /**
+   * TODO
+   */
+  _terminateEndpoint(endpoint) {
+    var index = this.endpoints.indexOf(endpoint);
+    this.endpoints.splice(index, 1);
   }
 
-  xhasOut() {
+  /**
+   * TODO
+   */
+  _hasOut() {
     return false;
   }
 
-  xsend(message, more) {
+  /**
+   * TODO
+   */
+  _send(message, more) {
     throw new Error("Failed to send message - send not supported on SUB type socket");
   }
 
-  xonMessage(endpoint, message) {
+  /**
+   * TODO
+   */
+  _onMessage(endpoint, message) {
     if (this.onMessage != null) {
       this.onMessage(message);
     }
@@ -515,33 +623,6 @@ export class Subscriber extends ZWSSocket {
 export class Message {
   constructor() {
     this.frames = [];  // Array of ArrayBuffers. Each ArrayBuffer represents a frame.
-
-    this.getSize = this.getSize.bind(this);
-
-    this.addBuffer = this.addBuffer.bind(this);
-    this.addFloat = this.addFloat.bind(this);
-    this.addInt = this.addInt.bind(this);
-    this.addString = this.addString.bind(this);
-    this.addUint = this.addUint.bind(this);
-
-    this.getBuffer = this.getBuffer.bind(this);
-    this.getFloat = this.getFloat.bind(this);
-    this.getInt = this.getInt.bind(this);
-    this.getString = this.getString.bind(this);
-    this.getUint = this.getUint.bind(this);
-
-    this.insertBuffer = this.insertBuffer.bind(this);
-    this.insertFloat = this.insertFloat.bind(this);
-    this.insertInt = this.insertInt.bind(this);
-    this.insertString = this.insertString.bind(this);
-    this.insertUint = this.insertUint.bind(this);
-
-    this.popBuffer = this.popBuffer.bind(this);
-    this.popFloat = this.popFloat.bind(this);
-    this.popBuffer = this.popBuffer.bind(this);
-    this.popInt = this.popInt.bind(this);
-    this.popString = this.popString.bind(this);
-    this.popUint = this.popUint.bind(this);
   }
 
   /**
@@ -550,6 +631,15 @@ export class Message {
    */
   getSize() {
     return this.frames.length;
+  }
+
+  /**
+   * Append a boolean to the end of the message
+   * @param {Boolean} bool - Buffer of data to append
+   * @return {Message} - Updated message
+   */
+  addBoolean(bool) {
+    return this.addBuffer(NumberUtility.booleanToBytes(bool));
   }
 
   /**
@@ -563,7 +653,7 @@ export class Message {
 
     } else if (data instanceof Uint8Array) {
       this.frames.push(data.buffer);
-      
+
     } else {
       throw new Error("Failed to add buffer to message - unknown buffer type \"" + typeof buffer + "\"");
     }
@@ -614,6 +704,15 @@ export class Message {
     return this.addBuffer(NumberUtility.uintToBytes(number, size));
   }
 
+
+  /**
+   * Get a boolean at the specified frame location
+   * @param {Boolean} i - Index of frame to fetch
+   */
+  getBoolean(i) {
+    return NumberUtility.bytesToBoolean(this.getBuffer(i));
+  }
+
   /**
    * Get the frame at the specified location
    * @param {number} i - Frame location
@@ -657,7 +756,17 @@ export class Message {
   getUint(i, size = 4) {
     return NumberUtility.bytesToUint(this.getBuffer(i), size);
   }
-  
+
+  /**
+   * Insert a boolean at frame index i of the message
+   * @param {number} i - Insert index
+   * @param {Boolean} bool - Number to insert
+   * @return {Message} - Updated message
+   */
+  insertBoolean(i, bool) {
+    return this.insertBuffer(i, NumberUtility.booleanToBytes(bool));
+  }
+
   /**
    * Insert a buffer at frame index i of the message
    * @param {number} i - Insert index
@@ -674,7 +783,7 @@ export class Message {
 
     } else if (data instanceof Uint8Array) {
       this.frames.splice(i, 0, data.buffer);
-      
+
     } else {
       throw new Error("Failed to insert buffer into message - unknown buffer type \"" + typeof buffer + "\"");
     }
@@ -699,7 +808,7 @@ export class Message {
    * @return {Message} - Updated message
    */
   insertInt(i, number, size = 4) {
-    return this.insertBuffer(i, NumberUtility.int16ToBytes(number, size));
+    return this.insertBuffer(i, NumberUtility.intToBytes(number, size));
   }
 
   /**
@@ -726,7 +835,16 @@ export class Message {
   insertUint(i, number, size = 4) {
     return this.insertBuffer(i, NumberUtility.uintToBytes(number, size));
   }
-  
+
+  /**
+   * Pop the first frame of the message, as a boolean
+   * @return {Boolean}
+   */
+  popBoolean() {
+    const frame = this.popBuffer();
+    return NumberUtility.bytesToBoolean(frame);
+  }
+
   /**
    * Pop the first frame of the message, as an ArrayBuffer
    * @return {ArrayBuffer} - Frame payload
@@ -737,7 +855,7 @@ export class Message {
 
     return frame;
   }
-  
+
   /**
    * Pop the first frame of the message, as a float
    * @param {number} size - Size in bytes of float (default: 8)
@@ -745,6 +863,15 @@ export class Message {
    */
   popFloat(size = 8) {
     const frame = this.popBuffer();
+
+    // If we've only consumed part of the frame, save the rest
+    if (frame.byteLength > size) {
+      let left = frame.slice(size);
+
+      this.insertBuffer(0, left);
+    }
+
+    // If we've consumed part of the frame, save the rest
     return NumberUtility.bytesToFloat(frame, size);
   }
 
@@ -755,6 +882,12 @@ export class Message {
    */
   popInt(size = 4) {
     const frame = this.popBuffer();
+    // If we've only consumed part of the frame, save the rest
+    if (frame.byteLength > size) {
+      let left = frame.slice(size);
+
+      this.insertBuffer(0, left);
+    }
     return NumberUtility.bytesToInt(frame, size);
   }
 
@@ -774,58 +907,96 @@ export class Message {
    */
   popUint(size = 4) {
     const frame = this.popBuffer();
+    // If we've only consumed part of the frame, save the rest
+    if (frame.byteLength > size) {
+      let left = frame.slice(size);
+
+      this.insertBuffer(0, left);
+    }
     return NumberUtility.bytesToUint(frame, size);
   }
 }
 
 // Number Utility
-function NumberUtility() {}
+export function NumberUtility() {}
 
 NumberUtility.littleEndian = true;
 
-NumberUtility.bytesToFloat = function (arr, size) {
-  let view = new DataView(arr);
+NumberUtility.bytesToBoolean = function (buf) {
+  let view = new DataView(buf);
+
+  return (view.getInt8(0, NumberUtility.littleEndian) > 0 ? true : false);
+}
+
+NumberUtility.bytesToFloat = function (buf, size, offset = 0) {
+  let view = new DataView(buf);
 
   if (size == 4) {
-    return view.getFloat32(0, NumberUtility.littleEndian);
+    return view.getFloat32(offset, NumberUtility.littleEndian);
   } else if (size == 8) {
-    return view.getFloat64(0, NumberUtility.littleEndian);
+    return view.getFloat64(offset, NumberUtility.littleEndian);
   } else {
     throw new Error("Failed to convert bytes to int - invalid integer size (size of " + size + ")");
   }
 }
 
-NumberUtility.bytesToInt = function (arr, size) {
-  let view = new DataView(arr);
+NumberUtility.bytesToInt = function (buf, size, offset = 0) {
+  let view = new DataView(buf);
 
   if (size == 1) {
-    return view.getInt8(0, NumberUtility.littleEndian);
+    return view.getInt8(offset, NumberUtility.littleEndian);
   } else if (size == 2) {
-    return view.getInt16(0, NumberUtility.littleEndian);
+    return view.getInt16(offset, NumberUtility.littleEndian);
   } else if (size == 4) {
-    return view.getInt32(0, NumberUtility.littleEndian);
+    return view.getInt32(offset, NumberUtility.littleEndian);
   } else {
     throw new Error("Failed to convert bytes to int - invalid integer size (size of " + size + ")");
   }
 }
 
-NumberUtility.bytesToUint = function (arr, size) {
-  let view = new DataView(arr);
+NumberUtility.bytesToUint = function (buf, size, offset = 0) {
+  let view = new DataView(buf);
 
   if (size == 1) {
-    return view.getUint8(0, NumberUtility.littleEndian);
+    return view.getUint8(offset, NumberUtility.littleEndian);
   } else if (size == 2) {
-    return view.getUint16(0, NumberUtility.littleEndian);
+    return view.getUint16(offset, NumberUtility.littleEndian);
   } else if (size == 4) {
-    return view.getUint32(0, NumberUtility.littleEndian);
+    return view.getUint32(offset, NumberUtility.littleEndian);
   } else {
     throw new Error("Failed to convert bytes to int - invalid integer size (size of " + size + ")");
   }
+}
+
+NumberUtility.booleanToBytes = function (bool) {
+  let buf = new ArrayBuffer(1);
+  let view = new DataView(buf);
+
+  view.setInt8(0, (bool ? 1 : 0), NumberUtility.littleEndian);
+  return buf;
+}
+
+
+NumberUtility.floatArrayToBytes = function (arr, size) {
+  let buf = new ArrayBuffer(size * arr.length);
+  let view = new DataView(buf);
+
+  for (let i = 0; i < arr.length; i++) {
+    if (size == 4) {
+      view.setFloat32(i*size, arr[i], NumberUtility.littleEndian);
+    } else if (size == 8) {
+      view.setFloat64(i*size, arr[i], NumberUtility.littleEndian);
+    } else {
+      throw new Error("Failed to convert bytes to int - invalid integer size (size of " + size + ")");
+    }
+  }
+
+  return buf;
 }
 
 NumberUtility.floatToBytes = function (num, size) {
-  let arr = new ArrayBuffer(8);
-  let view = new DataView(arr);
+  let buf = new ArrayBuffer(size);
+  let view = new DataView(buf);
 
   if (size == 4) {
     view.setFloat32(0, num, NumberUtility.littleEndian);
@@ -834,12 +1005,32 @@ NumberUtility.floatToBytes = function (num, size) {
   } else {
     throw new Error("Failed to convert bytes to int - invalid integer size (size of " + size + ")");
   }
-  return arr;
+  return buf;
+}
+
+
+NumberUtility.intArrayToBytes = function (arr, size) {
+  let buf = new ArrayBuffer(size * arr.length);
+  let view = new DataView(buf);
+
+  for (let i = 0; i < arr.length; i++) {
+    if (size == 1) {
+      view.setInt8(i*size, arr[i], NumberUtility.littleEndian);
+    } else if (size == 2) {
+      view.setInt16(i*size, arr[i], NumberUtility.littleEndian);
+    } else if (size == 4) {
+      view.setInt32(i*size, arr[i], NumberUtility.littleEndian);
+    } else {
+      throw new Error("Failed to convert int to bytes - invalid integer size (size of " + size + ")");
+    }
+  }
+
+  return buf;
 }
 
 NumberUtility.intToBytes = function (num, size) {
-  let arr = new ArrayBuffer(size);
-  let view = new DataView(arr);
+  let buf = new ArrayBuffer(size);
+  let view = new DataView(buf);
 
   if (size == 1) {
     view.setInt8(0, num, NumberUtility.littleEndian);
@@ -850,7 +1041,26 @@ NumberUtility.intToBytes = function (num, size) {
   } else {
     throw new Error("Failed to convert int to bytes - invalid integer size (size of " + size + ")");
   }
-  return arr;
+  return buf;
+}
+
+NumberUtility.uintArrayToBytes = function (arr, size) {
+  let buf = new ArrayBuffer(size * arr.length);
+  let view = new DataView(buf);
+
+  for (let i = 0; i < arr.length; i++) {
+    if (size == 1) {
+      view.setUint8(i*size, arr[i], NumberUtility.littleEndian);
+    } else if (size == 2) {
+      view.setUint16(i*size, arr[i], NumberUtility.littleEndian);
+    } else if (size == 4) {
+      view.setUint32(i*size, arr[i], NumberUtility.littleEndian);
+    } else {
+      throw new Error("Failed to convert int to bytes - invalid integer size (size of " + size + ")");
+    }
+  }
+
+  return buf;
 }
 
 NumberUtility.uintToBytes = function (num, size) {

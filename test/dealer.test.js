@@ -156,7 +156,7 @@ describe('dealer send and receive', () => {
     dealer.connect(addressA);
   });
 
-  test('dealer receives replies', done => {
+  test('dealer processes incoming messages', done => {
     const verifyTest = jest.fn(() => {
       expect(dealerOnMessage).toBeCalledTimes(testMessages.length);
       expect(dealerOnMessage.mock.calls[0][0].frames).toEqual(testMessageA.frames);
@@ -177,6 +177,36 @@ describe('dealer send and receive', () => {
       dealer.send(testMessageA);
       dealer.send(testMessageB);
       dealer.send(testMessageC);
+    });
+
+    server.on('connection', socket => {
+      socket.on('message', message => {
+        socket.send(message); 
+      });
+    });
+    
+    dealer.sendReady = ready;
+    dealer.onMessage = dealerOnMessage;
+    dealer.connect(addressA);
+  });
+
+  test('dealer receives replies', done => {
+    const dealerOnMessage = jest.fn(message => {
+      messageCount++;
+
+      if (messageCount === testMessages.length) {
+        done();
+      }
+    });
+    
+    const ready = jest.fn(message => {
+      expect.assertions(3);
+      dealer.send(testMessageA);
+      dealer.receive().then(response => { expect(response.frames).toEqual(testMessageA.frames) });
+      dealer.send(testMessageB);
+      dealer.receive().then(response => { expect(response.frames).toEqual(testMessageB.frames) });
+      dealer.send(testMessageC);
+      dealer.receive().then(response => { expect(response.frames).toEqual(testMessageC.frames) });
     });
 
     server.on('connection', socket => {
