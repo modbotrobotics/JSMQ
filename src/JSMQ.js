@@ -8,14 +8,16 @@ const ConnectionState = Object.freeze({
   CLOSED:                 3,
 });
 
+// DEBUG
+var debugLog = false;
+
 /**
  * Class representing a socket endpoint
  * @param {string} address - The endpoint address (ex: "ws://127.0.0.1:15798")
  */
 class Endpoint {
-  constructor(address, name = "") {
+  constructor(address) {
     this.address = address;
-    this.name = name;
 
     this._connectionRetries = 0;
     this._connectionState = ConnectionState.CLOSED;
@@ -71,11 +73,12 @@ class Endpoint {
    * @param {*} e - event (unused)
    */
   _webSocketOnClose(e) {
+    if (debugLog) if (debugLog) console.log("JSMQ | Endpoint WebSocket connection closed");
     let previousState = this._connectionState;
     this._connectionState = ConnectionState.CLOSED;
 
     if (e.code !== 1000 && e.code !== 1005) {
-      console.log("Websocket closed - code: " + e.code + ", reason: \"" + e.reason + "\"");
+      if (debugLog) console.log("JSMQ | Websocket closed - code: " + e.code + ", reason: \"" + e.reason + "\"");
     }
 
     if ((previousState == ConnectionState.OPEN || previousState == ConnectionState.CLOSING)
@@ -103,6 +106,7 @@ class Endpoint {
    * @param {*} e - event (unused)
    */
   _webSocketOnError(e) {
+    if (debugLog) console.log("JSMQ | Websocket error:", e);
   }
 
   /**
@@ -128,7 +132,7 @@ class Endpoint {
       let arr = strs.map( str => {
         let result = parseInt(str);
         if (result === NaN || result > 255) {
-          console.log("Failed to parse message frame -- invalid string representation of data");
+          if (debugLog) console.log("JSMQ | Failed to parse message frame -- invalid string representation of data");
         }
         return result;
       });
@@ -140,7 +144,7 @@ class Endpoint {
 
     // Other message types are not supported and will be dropped
     } else {
-      console.log("Failed to parse message frame -- unsupported message type \"" + typeof e.data + "\"");
+      if (debugLog) console.log("JSMQ | Failed to parse message frame -- unsupported message type \"" + typeof e.data + "\"");
     }
   }
 
@@ -152,8 +156,9 @@ class Endpoint {
    * @param {*} e - event (unused)
    */
   _webSocketOnOpen(e) {
+    if (debugLog) console.log("JSMQ | Endpoint WebSocket connection opened");
     this._connectionRetries = 0;
-
+    
     this._connectionState = ConnectionState.OPEN;
     if (this.activated != null) {
       this.activated(this);
@@ -166,10 +171,12 @@ class Endpoint {
    * @param {string} reason - A string explaining why the connection is being clsoed
    */
   close(code = undefined, reason = undefined) {
+    if (debugLog) console.log("JSMQ | Endpoint closing WebSocket connection");
     this._connectionState = ConnectionState.CLOSING;
     if (code === undefined) {
       code = 1000;  // WebSocket CloseEvent code 1005 "No Status Recvd"
     }
+
     this._webSocket.close(code, reason);
     this._websocket = null;
   }
@@ -185,6 +192,7 @@ class Endpoint {
    * Open a WebSocket connection to the endpoint address
    */
   open() {
+    if (debugLog) console.log("JSMQ | Endpoint attempting to open WebSocket connection to address", this.address);
     if (this._webSocket != null) {
       this._webSocket.onclose = null;
       this._webSocket.onerror = null;
@@ -219,12 +227,10 @@ class Endpoint {
 
     for (let j = 0; j < messageSize; j++) {
       const frame = message.getBuffer(j);
-
       let data = new Uint8Array(frame.byteLength + 1);
       let more = j == messageSize - 1 ? 0 : 1;
       data[0] = more;  // set the MORE byte
       data.set(new Uint8Array(frame), 1);
-
       this._webSocket.send(data);
     }
   }
@@ -278,7 +284,7 @@ class LoadBalancer {
   send(message) {
     if (this.endpoints.length == 0) {
       this.isActive = false;
-      console.log("Failed to send message - no valid endpoints");
+      if (debugLog) console.log("JSMQ | Failed to send message - no valid endpoints");
       return false;
     }
 
@@ -300,6 +306,9 @@ class LoadBalancer {
     }
 
     this.endpoints.splice(index, 1);
+    if (this.endpoints.length == 0) {
+      this.isActive = false;
+    }
   }
 }
 
@@ -309,6 +318,7 @@ class LoadBalancer {
 export class ZWSSocket {
   constructor() {
     this.endpoints = [];
+    this.onDisconnect = null;
     this.onMessage = null;
   };
 
@@ -324,13 +334,16 @@ export class ZWSSocket {
    */
   _onEndpointDeactivated(endpoint) {
     this._terminateEndpoint(endpoint);
+    if (this.onDisconnect != null) {
+      this.onDisconnect(endpoint);
+    }
   }
 
   /**
    * TODO
    */
-  connect(address, name) {
-    let endpoint = new Endpoint(address, name);
+  connect(address) {
+    let endpoint = new Endpoint(address);
     endpoint.activated = this._onEndpointActivated.bind(this);
     endpoint.deactivated = this._onEndpointDeactivated.bind(this);
     endpoint.onMessage = this._onMessage.bind(this);
@@ -508,7 +521,7 @@ export class Subscriber extends ZWSSocket {
       subscription = StringUtility.StringToUint8Array(String(subscription));
     }
 
-    for (var j = 0; j < subscriptions.length; j++) {
+    for (var j = 0; j < this.subscriptions.length; j++) {
 
       if (this.subscriptions[j].length == subscription.length) {
         var equal = true;
@@ -563,8 +576,8 @@ export class Subscriber extends ZWSSocket {
       endpoint.write(message);
     }
 
-    if (!isActive) {
-      isActive = true;
+    if (!this.isActive) {
+      this.isActive = true;
 
       if (this.sendReady != null) {
         this.sendReady();
@@ -576,8 +589,8 @@ export class Subscriber extends ZWSSocket {
    * TODO
    */
   _terminateEndpoint(endpoint) {
-    var index = endpoints.indexOf(endpoint);
-    endpoints.splice(index, 1);
+    var index = this.endpoints.indexOf(endpoint);
+    this.endpoints.splice(index, 1);
   }
 
   /**
@@ -850,6 +863,15 @@ export class Message {
    */
   popFloat(size = 8) {
     const frame = this.popBuffer();
+
+    // If we've only consumed part of the frame, save the rest
+    if (frame.byteLength > size) {
+      let left = frame.slice(size);
+
+      this.insertBuffer(0, left);
+    }
+
+    // If we've consumed part of the frame, save the rest
     return NumberUtility.bytesToFloat(frame, size);
   }
 
@@ -860,6 +882,12 @@ export class Message {
    */
   popInt(size = 4) {
     const frame = this.popBuffer();
+    // If we've only consumed part of the frame, save the rest
+    if (frame.byteLength > size) {
+      let left = frame.slice(size);
+
+      this.insertBuffer(0, left);
+    }
     return NumberUtility.bytesToInt(frame, size);
   }
 
@@ -879,72 +907,96 @@ export class Message {
    */
   popUint(size = 4) {
     const frame = this.popBuffer();
+    // If we've only consumed part of the frame, save the rest
+    if (frame.byteLength > size) {
+      let left = frame.slice(size);
+
+      this.insertBuffer(0, left);
+    }
     return NumberUtility.bytesToUint(frame, size);
   }
 }
 
 // Number Utility
-function NumberUtility() {}
+export function NumberUtility() {}
 
 NumberUtility.littleEndian = true;
 
-NumberUtility.bytesToBoolean = function (arr) {
-  let view = new DataView(arr);
+NumberUtility.bytesToBoolean = function (buf) {
+  let view = new DataView(buf);
 
   return (view.getInt8(0, NumberUtility.littleEndian) > 0 ? true : false);
 }
 
-NumberUtility.bytesToFloat = function (arr, size) {
-  let view = new DataView(arr);
+NumberUtility.bytesToFloat = function (buf, size, offset = 0) {
+  let view = new DataView(buf);
 
   if (size == 4) {
-    return view.getFloat32(0, NumberUtility.littleEndian);
+    return view.getFloat32(offset, NumberUtility.littleEndian);
   } else if (size == 8) {
-    return view.getFloat64(0, NumberUtility.littleEndian);
+    return view.getFloat64(offset, NumberUtility.littleEndian);
   } else {
     throw new Error("Failed to convert bytes to int - invalid integer size (size of " + size + ")");
   }
 }
 
-NumberUtility.bytesToInt = function (arr, size) {
-  let view = new DataView(arr);
+NumberUtility.bytesToInt = function (buf, size, offset = 0) {
+  let view = new DataView(buf);
 
   if (size == 1) {
-    return view.getInt8(0, NumberUtility.littleEndian);
+    return view.getInt8(offset, NumberUtility.littleEndian);
   } else if (size == 2) {
-    return view.getInt16(0, NumberUtility.littleEndian);
+    return view.getInt16(offset, NumberUtility.littleEndian);
   } else if (size == 4) {
-    return view.getInt32(0, NumberUtility.littleEndian);
+    return view.getInt32(offset, NumberUtility.littleEndian);
   } else {
     throw new Error("Failed to convert bytes to int - invalid integer size (size of " + size + ")");
   }
 }
 
-NumberUtility.bytesToUint = function (arr, size) {
-  let view = new DataView(arr);
+NumberUtility.bytesToUint = function (buf, size, offset = 0) {
+  let view = new DataView(buf);
 
   if (size == 1) {
-    return view.getUint8(0, NumberUtility.littleEndian);
+    return view.getUint8(offset, NumberUtility.littleEndian);
   } else if (size == 2) {
-    return view.getUint16(0, NumberUtility.littleEndian);
+    return view.getUint16(offset, NumberUtility.littleEndian);
   } else if (size == 4) {
-    return view.getUint32(0, NumberUtility.littleEndian);
+    return view.getUint32(offset, NumberUtility.littleEndian);
   } else {
     throw new Error("Failed to convert bytes to int - invalid integer size (size of " + size + ")");
   }
 }
 
 NumberUtility.booleanToBytes = function (bool) {
-  let arr = new ArrayBuffer(1);
-  let view = new DataView(arr);
+  let buf = new ArrayBuffer(1);
+  let view = new DataView(buf);
 
   view.setInt8(0, (bool ? 1 : 0), NumberUtility.littleEndian);
-  return arr;
+  return buf;
+}
+
+
+NumberUtility.floatArrayToBytes = function (arr, size) {
+  let buf = new ArrayBuffer(size * arr.length);
+  let view = new DataView(buf);
+
+  for (let i = 0; i < arr.length; i++) {
+    if (size == 4) {
+      view.setFloat32(i*size, arr[i], NumberUtility.littleEndian);
+    } else if (size == 8) {
+      view.setFloat64(i*size, arr[i], NumberUtility.littleEndian);
+    } else {
+      throw new Error("Failed to convert bytes to int - invalid integer size (size of " + size + ")");
+    }
+  }
+
+  return buf;
 }
 
 NumberUtility.floatToBytes = function (num, size) {
-  let arr = new ArrayBuffer(8);
-  let view = new DataView(arr);
+  let buf = new ArrayBuffer(size);
+  let view = new DataView(buf);
 
   if (size == 4) {
     view.setFloat32(0, num, NumberUtility.littleEndian);
@@ -953,12 +1005,32 @@ NumberUtility.floatToBytes = function (num, size) {
   } else {
     throw new Error("Failed to convert bytes to int - invalid integer size (size of " + size + ")");
   }
-  return arr;
+  return buf;
+}
+
+
+NumberUtility.intArrayToBytes = function (arr, size) {
+  let buf = new ArrayBuffer(size * arr.length);
+  let view = new DataView(buf);
+
+  for (let i = 0; i < arr.length; i++) {
+    if (size == 1) {
+      view.setInt8(i*size, arr[i], NumberUtility.littleEndian);
+    } else if (size == 2) {
+      view.setInt16(i*size, arr[i], NumberUtility.littleEndian);
+    } else if (size == 4) {
+      view.setInt32(i*size, arr[i], NumberUtility.littleEndian);
+    } else {
+      throw new Error("Failed to convert int to bytes - invalid integer size (size of " + size + ")");
+    }
+  }
+
+  return buf;
 }
 
 NumberUtility.intToBytes = function (num, size) {
-  let arr = new ArrayBuffer(size);
-  let view = new DataView(arr);
+  let buf = new ArrayBuffer(size);
+  let view = new DataView(buf);
 
   if (size == 1) {
     view.setInt8(0, num, NumberUtility.littleEndian);
@@ -969,7 +1041,26 @@ NumberUtility.intToBytes = function (num, size) {
   } else {
     throw new Error("Failed to convert int to bytes - invalid integer size (size of " + size + ")");
   }
-  return arr;
+  return buf;
+}
+
+NumberUtility.uintArrayToBytes = function (arr, size) {
+  let buf = new ArrayBuffer(size * arr.length);
+  let view = new DataView(buf);
+
+  for (let i = 0; i < arr.length; i++) {
+    if (size == 1) {
+      view.setUint8(i*size, arr[i], NumberUtility.littleEndian);
+    } else if (size == 2) {
+      view.setUint16(i*size, arr[i], NumberUtility.littleEndian);
+    } else if (size == 4) {
+      view.setUint32(i*size, arr[i], NumberUtility.littleEndian);
+    } else {
+      throw new Error("Failed to convert int to bytes - invalid integer size (size of " + size + ")");
+    }
+  }
+
+  return buf;
 }
 
 NumberUtility.uintToBytes = function (num, size) {
