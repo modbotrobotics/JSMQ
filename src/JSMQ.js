@@ -247,6 +247,7 @@ class LoadBalancer {
     this.isActive = false;
     this.writeActivated = null;
   }
+
   /**
    * Attach: add an endpoint to list of endpoints
    * @param {Endpoint} endpoint - The endpoint to attach
@@ -268,9 +269,10 @@ class LoadBalancer {
    * @return {Boolean}
    */
   getHasOut() {
-    if (this.inprogress) {
-      return true;
-    }
+    // Deprecated / old
+    // if (this.inprogress) {
+    //   return true;
+    // }
 
     return this.endpoints.length > 0;
   }
@@ -415,6 +417,12 @@ export class Dealer extends ZWSSocket {
    */
   _terminateEndpoint(endpoint) {
     this.lb.terminate(endpoint);
+
+    // If there are no remaining endpoints connected, drain queues
+    if (!this._hasOut()) {
+      this._responseQueue = [];
+      this._responseCallbackQueue = [];
+    }
   }
 
   /**
@@ -718,8 +726,8 @@ export class Message {
    * @param {number} i - Frame location
    * @return {ArrayBuffer} - Frame payload
    */
-  getBuffer(frame) {
-    return this.frames[frame];
+  getBuffer(i) {
+    return this.frames[i];
   }
 
   /**
@@ -922,10 +930,10 @@ export function NumberUtility() {}
 
 NumberUtility.littleEndian = true;
 
-NumberUtility.bytesToBoolean = function (buf) {
+NumberUtility.bytesToBoolean = function (buf, offset = 0) {
   let view = new DataView(buf);
 
-  return (view.getInt8(0, NumberUtility.littleEndian) > 0 ? true : false);
+  return (view.getInt8(offset, NumberUtility.littleEndian) > 0 ? true : false);
 }
 
 NumberUtility.bytesToFloat = function (buf, size, offset = 0) {
